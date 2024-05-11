@@ -20,6 +20,12 @@
 #include <linux/rpmb.h>
 #include <linux/soc/mediatek/mtk_sip_svc.h>
 #include <linux/soc/mediatek/mtk-pm-qos.h>
+#include <mt-plat/mtk_boot.h>
+#include <linux/of.h>
+#include <linux/of_fdt.h>
+#include <linux/of_irq.h>
+#include <linux/of_platform.h>
+
 
 #ifdef CONFIG_MTK_AEE_FEATURE
 #include <mt-plat/aee.h>
@@ -37,11 +43,11 @@
 #include "ufs-mtk-block.h"
 #include "unipro.h"
 
-#ifdef CONFIG_MACH_MT6781
+#if defined(CONFIG_MACH_MT6781) || defined(CONFIG_MACH_MT6785)
 #include "mtk_clkbuf_ctl.h"
 #endif
 
-#if defined(CONFIG_SCSI_UFS_HPB)
+#if defined(CONFIG_SCSI_UFS_HPB) || defined(CONFIG_SCSI_SKHPB)
 #include "ufshpb.h"
 #endif
 
@@ -97,7 +103,7 @@ static const struct of_device_id ufs_mtk_of_match[] = {
 	{},
 };
 
-#ifdef CONFIG_MACH_MT6781
+#if defined(CONFIG_MACH_MT6781) || defined(CONFIG_MACH_MT6785)
 extern bool clk_buf_ctrl(enum clk_buf_id id, bool onoff);
 #endif
 
@@ -725,7 +731,7 @@ static int ufs_mtk_setup_ref_clk(struct ufs_hba *hba, bool on)
 		return 0;
 
 	if (on) {
-		#ifdef CONFIG_MACH_MT6781
+		#if defined(CONFIG_MACH_MT6781) || defined(CONFIG_MACH_MT6785)
 			clk_buf_ctrl(CLK_BUF_UFS, on);
 		#else
 			ufs_mtk_ref_clk_notify(on, res);
@@ -780,7 +786,7 @@ out:
 	host->ref_clk_enabled = on;
 	if (!on) {
 		ufshcd_delay_us(host->ref_clk_gating_wait_us, 10);
-	#ifdef CONFIG_MACH_MT6781
+	#if defined(CONFIG_MACH_MT6781) || defined(CONFIG_MACH_MT6785)
 		clk_buf_ctrl(CLK_BUF_UFS, on);
 	#else
 		ufs_mtk_ref_clk_notify(on, res);
@@ -1245,6 +1251,7 @@ static int ufs_mtk_init(struct ufs_hba *hba)
 	struct device *dev = hba->dev;
 	struct ufs_mtk_host *host;
 	int err = 0;
+	struct platform_device *pdev;
 
 	host = devm_kzalloc(dev, sizeof(*host), GFP_KERNEL);
 	if (!host) {
@@ -1269,6 +1276,15 @@ static int ufs_mtk_init(struct ufs_hba *hba)
 		if (host->cfg->quirks & UFS_MTK_HOST_QUIRK_BROKEN_AUTO_HIBERN8)
 			host->auto_hibern_enabled = true;
 	}
+
+	/* Rename device to unify device path for booting storage device. */
+	device_rename(hba->dev, "bootdevice");
+	/*
+	 * fix uaf(use afer free) issue: modify pdev->name,
+	 * device_rename will free pdev->name
+	 */
+	pdev = to_platform_device(hba->dev);
+	pdev->name = pdev->dev.kobj.name;
 
 	err = ufs_mtk_bind_mphy(hba);
 	if (err)
@@ -1828,7 +1844,7 @@ static void ufs_mtk_setup_xfer_req(struct ufs_hba *hba, int tag,
 		lrbp = &hba->lrb[tag];
 		cmd = lrbp->cmd;
 
-		if (!ufs_mtk_is_data_cmd(cmd, false))
+		if (!ufs_mtk_is_data_cmd(cmd->cmnd[0], false))
 			return;
 
 		ufs_mtk_biolog_send_command(tag, cmd);
@@ -1851,7 +1867,7 @@ static void ufs_mtk_compl_xfer_req(struct ufs_hba *hba, int tag,
 		lrbp = &hba->lrb[tag];
 		cmd = lrbp->cmd;
 
-		if (!ufs_mtk_is_data_cmd(cmd, false))
+		if (!ufs_mtk_is_data_cmd(cmd->cmnd[0], false))
 			return;
 
 		req_mask = hba->outstanding_reqs &
@@ -1943,6 +1959,40 @@ static struct ufs_hba_variant_ops ufs_hba_mtk_vops = {
 	.has_ufshci_perf_heuristic = ufs_mtk_has_ufshci_perf_heuristic,
 };
 
+struct tag_bootmode {
+		u32 size;
+		u32 tag;
+		u32 bootmode;
+		u32 boottype;
+};
+
+unsigned int ufs_mtk_get_boot_type(void)
+{
+	struct tag_bootmode *tags = NULL;
+	struct device_node *node = NULL;
+	unsigned long size = 0;
+	int ret = BOOTDEV_UFS;
+
+	node = of_find_node_by_path("/chosen");
+	if (!node)
+		node = of_find_node_by_path("/chosen@0");
+	if (node) {
+		tags = (struct tag_bootmode *)of_get_property(node,
+				"atag,boot", (int *)&size);
+	} else
+		pr_notice("[%s] of_chosen not found\n", __func__);
+
+	if (tags) {
+		ret = tags->boottype;
+		if ((ret > 2) || (ret < 0))
+			ret = BOOTDEV_SDMMC;
+	} else {
+		pr_notice("[%s] 'atag,boot' is not found\n", __func__);
+	}
+
+	return ret;
+}
+
 /**
  * ufs_mtk_probe - probe routine of the driver
  * @pdev: pointer to Platform device handle
@@ -1952,7 +2002,13 @@ static struct ufs_hba_variant_ops ufs_hba_mtk_vops = {
 static int ufs_mtk_probe(struct platform_device *pdev)
 {
 	int err;
+	int boot_type;
 	struct device *dev = &pdev->dev;
+
+	/* Add get_boot_type check and return ENODEV if not ufs boot */
+	boot_type = ufs_mtk_get_boot_type();
+	if (boot_type != BOOTDEV_UFS)
+		return -ENODEV;
 
 	/* perform generic probe */
 	err = ufshcd_pltfrm_init(pdev, &ufs_hba_mtk_vops);

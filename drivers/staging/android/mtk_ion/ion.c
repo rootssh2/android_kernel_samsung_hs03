@@ -643,9 +643,9 @@ static int ion_handle_add(struct ion_client *client, struct ion_handle *handle)
 	return 0;
 }
 
-struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
-			     size_t align, unsigned int heap_id_mask,
-			     unsigned int flags)
+struct ion_handle *__ion_alloc(struct ion_client *client, size_t len,
+			       size_t align, unsigned int heap_id_mask,
+			       unsigned int flags, bool grab_handle)
 {
 	struct ion_handle *handle;
 	struct ion_device *dev = client->dev;
@@ -739,14 +739,19 @@ struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
 	mutex_lock(&client->lock);
 	ret = ion_handle_add(client, handle);
 	ion_client_buf_add(heap, client, len);
+	if (!ret && grab_handle)
+		ion_handle_get(handle);
 	mutex_unlock(&client->lock);
+	end = sched_clock();
 	if (ret) {
 		ion_handle_put(handle);
 		handle = ERR_PTR(ret);
 		IONMSG("%s ion handle add failed %d.\n", __func__, ret);
+	} else {
+		handle->dbg.user_ts = end;
+		do_div(handle->dbg.user_ts, 1000000);
+		memcpy(buffer->alloc_dbg, client->dbg_name, ION_MM_DBG_NAME_LEN);
 	}
-
-	end = sched_clock();
 
 	if (end - start > 100000000ULL) {/* unit is ns */
 		IONMSG("warn: ion alloc buffer size: %zu time: %lld ns\n",
@@ -762,11 +767,14 @@ struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
 #endif
 #endif
 
-	handle->dbg.user_ts = end;
-	do_div(handle->dbg.user_ts, 1000000);
-	memcpy(buffer->alloc_dbg, client->dbg_name, ION_MM_DBG_NAME_LEN);
-
 	return handle;
+}
+
+struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
+			     size_t align, unsigned int heap_id_mask,
+			     unsigned int flags)
+{
+	return __ion_alloc(client, len, align, heap_id_mask, flags, false);
 }
 EXPORT_SYMBOL(ion_alloc);
 
@@ -2348,7 +2356,10 @@ static int ion_debug_heap_show(struct seq_file *s, void *unused)
 	return 0;
 }
 
-static int debug_shrink_set(void *data, u64 val)
+/* HS03_T code for DEVAL5626T-668 by gaochao at 20220914 start */
+// static int debug_shrink_set(void *data, u64 val)
+int debug_shrink_set(void *data, u64 val)
+/* HS03_T code for DEVAL5626T-668 by gaochao at 20220914 end */
 {
 	struct ion_heap *heap = data;
 	struct shrink_control sc;
@@ -2358,10 +2369,20 @@ static int debug_shrink_set(void *data, u64 val)
 	sc.nr_to_scan = val;
 
 	if (!val) {
+		/* HS03_T code for DEVAL5626T-666 by gaochao at 20220914 start */
+		if (heap->shrinker.count_objects == NULL) {
+			return 0;
+		}
+		/* HS03_T code for DEVAL5626T-666 by gaochao at 20220914 end */
 		objs = heap->shrinker.count_objects(&heap->shrinker, &sc);
 		sc.nr_to_scan = objs;
 	}
 
+	/* HS03_T code for DEVAL5626T-666 by gaochao at 20220914 start */
+	if (heap->shrinker.scan_objects == NULL) {
+		return 0;
+	}
+	/* HS03_T code for DEVAL5626T-666 by gaochao at 20220914 end */
 	heap->shrinker.scan_objects(&heap->shrinker, &sc);
 	return 0;
 }
@@ -2819,33 +2840,21 @@ struct ion_buffer *ion_drv_file_to_buffer(struct file *file)
 {
 	struct dma_buf *dmabuf;
 	struct ion_buffer *buffer = NULL;
-	const char *pathname = NULL;
 
-	if (!file)
-		goto file2buf_exit;
-	if (!(file->f_path.dentry))
-		goto file2buf_exit;
+	if (!file || !is_dma_buf_file(file))
+		return ERR_PTR(-EINVAL);
 
-	pathname = file->f_path.dentry->d_name.name;
-	if (!pathname)
-		goto file2buf_exit;
-
-	if (strstr(pathname, "dmabuf")) {
-		dmabuf = file->private_data;
-		if (!dmabuf) {
-			IONMSG("%s warnning, dmabuf is NULL\n", __func__);
-			goto file2buf_exit;
-		}
-		if (dmabuf->ops == &dma_buf_ops)
-			buffer = dmabuf->priv;
+	dmabuf = file->private_data;
+	if (!dmabuf) {
+		IONMSG("%s warnning, dmabuf is NULL\n", __func__);
+		return ERR_PTR(-EINVAL);
+	}
+	if (dmabuf->ops == &dma_buf_ops) {
+		buffer = dmabuf->priv;
+		return buffer;
 	}
 
-file2buf_exit:
-
-	if (buffer)
-		return buffer;
-	else
-		return ERR_PTR(-EINVAL);
+	return ERR_PTR(-EINVAL);
 }
 
 /* ===================================== */

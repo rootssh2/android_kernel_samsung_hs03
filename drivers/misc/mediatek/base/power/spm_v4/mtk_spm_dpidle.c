@@ -55,7 +55,6 @@
 #include <mtk_power_gs_api.h>
 #endif
 
-#include <trace/events/mtk_idle_event.h>
 
 #include <mt-plat/mtk_io.h>
 
@@ -86,6 +85,28 @@
 #define	DPIDLE_LOG_DISCARD_CRITERIA			5000	/* ms */
 
 #define reg_read(addr)         __raw_readl(IOMEM(addr))
+
+void __attribute__ ((weak)) mtk8250_backup_dev(void)
+{
+	//pr_debug("NO %s !!!\n", __func__);
+}
+
+void __attribute__ ((weak)) mtk8250_restore_dev(void)
+{
+	//pr_debug("NO %s !!!\n", __func__);
+}
+
+int __attribute__ ((weak)) mtk8250_request_to_wakeup(void)
+{
+	//pr_debug("NO %s !!!\n", __func__);
+	return 0;
+}
+
+int __attribute__ ((weak)) mtk8250_request_to_sleep(void)
+{
+	//pr_debug("NO %s !!!\n", __func__);
+	return 0;
+}
 
 enum spm_deepidle_step {
 	SPM_DEEPIDLE_ENTER = 0x00000001,
@@ -472,11 +493,9 @@ unsigned int spm_go_to_dpidle(u32 spm_flags, u32 spm_data,
 
 	spm_dpidle_footprint(SPM_DEEPIDLE_ENTER_WFI);
 
-	trace_dpidle_rcuidle(cpu, 1);
 
 	spm_trigger_wfi_for_dpidle(pwrctrl);
 
-	trace_dpidle_rcuidle(cpu, 0);
 
 	dpidle_profile_time(DPIDLE_PROFILE_AFTER_WFI);
 
@@ -603,7 +622,7 @@ unsigned int spm_go_to_sleep_dpidle(u32 spm_flags, u32 spm_data)
 		spm_crit2("FAILED TO GET WD API\n");
 #endif
 
-
+	lockdep_off();
 	spin_lock_irqsave(&__spm_lock, flags);
 
 	spm_dpidle_notify_sspm_before_wfi(true,
@@ -650,11 +669,9 @@ unsigned int spm_go_to_sleep_dpidle(u32 spm_flags, u32 spm_data)
 	spm_dpidle_footprint(SPM_DEEPIDLE_SLEEP_DPIDLE |
 			     SPM_DEEPIDLE_ENTER_WFI);
 
-	trace_dpidle_rcuidle(cpu, 1);
 
 	spm_trigger_wfi_for_dpidle(pwrctrl);
 
-	trace_dpidle_rcuidle(cpu, 0);
 
 	spm_dpidle_footprint(SPM_DEEPIDLE_SLEEP_DPIDLE |
 			     SPM_DEEPIDLE_LEAVE_WFI);
@@ -693,7 +710,7 @@ RESTORE_IRQ:
 #endif
 
 	spin_unlock_irqrestore(&__spm_lock, flags);
-
+	lockdep_on();
 
 #if defined(CONFIG_MTK_WATCHDOG) && defined(CONFIG_MTK_WD_KICKER)
 	if (!wd_ret) {

@@ -37,6 +37,7 @@ enum MODEM_DUMP_FLAG {
 	DUMP_FLAG_SMEM_CCB_CTRL = (1<<14),
 	DUMP_FLAG_SMEM_CCB_DATA = (1<<15),
 	DUMP_FLAG_PCCIF_REG = (1 << 16),
+	DUMP_FLAG_GET_TRAFFIC = (1 << 18),
 };
 
 enum {
@@ -80,6 +81,7 @@ enum {
 	MD_CFG_RAT_STR4,
 	MD_CFG_RAT_STR5,
 	MD_CFG_WM_IDX,
+	MD_CFG_LOG_LEVEL,
 };
 
 enum {
@@ -179,6 +181,9 @@ enum{
 	NVRAM_CACHE_SHARE_MEMORY = 36,
 	SECURITY_SHARE_MEMORY = 37,
 	MD_MEM_AP_VIEW_INF = 38,
+	CCCI_MD_BIGDATA_SHARE_MEMORY = 46,
+	CCCI_MD_IPCA_BIGDATA_SHARE_MEMORY = 47,
+	AP_DEBUG_LEVEL = 48,
 	MD_RUNTIME_FEATURE_ID_MAX,
 }; /* MD_CCCI_RUNTIME_FEATURE_ID; */
 
@@ -369,6 +374,9 @@ enum {
 	MD_FLIGHT_MODE_LEAVE = 2
 };/* FLIGHT_STAGE */
 
+extern unsigned int is_cdma2000_enable(int md_id);
+extern int ccci_get_md_sec_smem_size_and_update(void);
+
 struct ccci_mem_layout *ccci_md_get_mem(int md_id);
 struct ccci_smem_region *ccci_md_get_smem_by_user_id(int md_id,
 	enum SMEM_USER_ID user_id);
@@ -421,9 +429,6 @@ struct ccci_per_md {
 	int dtr_state; /* only for usb bypass */
 	unsigned int is_in_ee_dump;
 
-	unsigned long long latest_isr_time;
-	unsigned long long latest_q0_isr_time;
-	unsigned long long latest_q0_rx_time;
 #ifdef CCCI_SKB_TRACE
 	unsigned long long netif_rx_profile[8];
 #endif

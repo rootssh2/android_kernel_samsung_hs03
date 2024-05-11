@@ -147,14 +147,6 @@ enum {
 	UFSHCD_CAN_QUEUE	= 32,
 };
 
-/* UFSHCD states */
-enum {
-	UFSHCD_STATE_RESET,
-	UFSHCD_STATE_ERROR,
-	UFSHCD_STATE_OPERATIONAL,
-	UFSHCD_STATE_EH_SCHEDULED,
-};
-
 /* UFSHCD error handling flags */
 enum {
 	UFSHCD_EH_IN_PROGRESS = (1 << 0),
@@ -256,6 +248,37 @@ static struct ufs_dev_fix ufs_fixups[] = {
 
 	UFS_FIX(UFS_ANY_VENDOR, UFS_ANY_MODEL,
 		UFS_DEVICE_QUIRK_VCC_OFF_DELAY),
+
+	#if defined(CONFIG_SCSI_SKHPB)
+	UFS_FIX(UFS_VENDOR_SKHYNIX, "H28S",
+		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
+
+	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ15ACPMA",
+		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
+	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ15AECMA",
+		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
+	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ15AECMM",
+		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
+	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ15AFAMA",
+		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
+	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ15AFAMM",
+		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
+	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ15AJAMM",
+		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
+
+	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ21AECMM",
+		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
+	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ21AECMZ",
+		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
+	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ21AFAMM",
+		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
+	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ21AFAMZ",
+		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
+	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ21AJAMM",
+		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
+	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ21AHDMM",
+		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
+#endif
 
 	END_FIX
 };
@@ -2353,6 +2376,29 @@ static void ufshcd_disable_intr(struct ufs_hba *hba, u32 intrs)
 	ufshcd_writel(hba, set, REG_INTERRUPT_ENABLE);
 }
 
+/* IOPP-upiu_flags-v1.2.k5.4 */
+static void set_customized_upiu_flags(struct ufshcd_lrb *lrbp, u32 *upiu_flags)
+{
+	if (!lrbp->cmd || !lrbp->cmd->request)
+		return;
+
+	switch (req_op(lrbp->cmd->request)) {
+	case REQ_OP_READ:
+		*upiu_flags |= UPIU_CMD_PRIO_HIGH;
+		break;
+	case REQ_OP_WRITE:
+		if (lrbp->cmd->request->cmd_flags & REQ_SYNC)
+			*upiu_flags |= UPIU_CMD_PRIO_HIGH;
+		break;
+	case REQ_OP_FLUSH:
+		*upiu_flags |= UPIU_TASK_ATTR_HEADQ;
+		break;
+	case REQ_OP_DISCARD:
+		*upiu_flags |= UPIU_TASK_ATTR_ORDERED;
+		break;
+	}
+}
+
 /**
  * ufshcd_prepare_req_desc_hdr() - Fills the requests header
  * descriptor according to request
@@ -2377,6 +2423,8 @@ static void ufshcd_prepare_req_desc_hdr(struct ufshcd_lrb *lrbp,
 		data_direction = UTP_NO_DATA_TRANSFER;
 		*upiu_flags = UPIU_CMD_FLAGS_NONE;
 	}
+
+	set_customized_upiu_flags(lrbp, upiu_flags);
 
 	dword_0 = data_direction | (lrbp->command_type
 				<< UPIU_COMMAND_TYPE_OFFSET);
@@ -2754,13 +2802,7 @@ send_orig_cmd:
 	/* Make sure descriptors are ready before ringing the doorbell */
 	wmb();
 
-#if defined(CONFIG_SCSI_UFS_FEATURE) && defined(CONFIG_SCSI_UFS_HPB)
-		if (!pre_req_err)
-			ufs_mtk_biolog_send_command(add_tag, add_lrbp->cmd);
-#endif
-		ufs_mtk_biolog_send_command(tag, lrbp->cmd);
-
-spin_lock_irqsave(hba->host->host_lock, flags);
+	spin_lock_irqsave(hba->host->host_lock, flags);
 
 #if defined(CONFIG_SCSI_UFS_FEATURE) && defined(CONFIG_SCSI_UFS_HPB)
 	if (!pre_req_err) {

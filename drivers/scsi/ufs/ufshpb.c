@@ -1782,7 +1782,7 @@ static int ufshpb_execute_map_req_wait(struct ufshpb_lu *hpb,
 	if (ret)
 		return ret;
 
-	req = blk_get_request(q, REQ_OP_SCSI_IN, GFP_KERNEL);
+	req = blk_get_request(q, REQ_OP_SCSI_IN, 0);
 	if (IS_ERR(req)) {
 		WARNING_MSG("cannot get request");
 		ret = -EIO;
@@ -2694,7 +2694,7 @@ void ufshpb_get_dev_info(struct ufshpb_dev_info *hpb_dev_info, u8 *desc_buf)
 
 	hpb_dev_info->hpb_device = false;
 
-	if (desc_buf[DEVICE_DESC_PARAM_UFS_FEAT] & UFS_FEATURE_SUPPORT_HPB_BIT)
+	if (desc_buf[DEVICE_DESC_PARAM_FEAT_SUP] & UFS_FEATURE_SUPPORT_HPB_BIT)
 		INIT_INFO("bUFSFeaturesSupport: HPB is set");
 	else {
 		INIT_INFO("bUFSFeaturesSupport: HPB not support");

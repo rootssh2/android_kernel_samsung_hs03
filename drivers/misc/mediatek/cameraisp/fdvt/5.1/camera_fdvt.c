@@ -378,7 +378,11 @@ static struct FDVT_REQUEST_RING_STRUCT fdvt_req_ring;
 static struct FDVT_CONFIG_STRUCT fdvt_enq_req;
 static struct FDVT_CONFIG_STRUCT fdvt_deq_req;
 static struct cmdq_client *fdvt_clt;
+#if IS_ENABLED(CONFIG_MTK_CAM_SECURITY_SUPPORT)
+#ifdef CMDQ_MTEE
 static struct cmdq_client *fdvt_secure_clt;
+#endif
+#endif
 static s32 fdvt_event_id;
 
 /*****************************************************************************
@@ -1651,7 +1655,7 @@ static signed int config_secure_fdvt_hw(struct fdvt_config *basic_config)
 #if !BYPASS_REG
 {
 #if IS_ENABLED(CONFIG_MTK_CAM_SECURITY_SUPPORT)
-
+#ifdef CMDQ_MTEE
 #ifdef FDVT_USE_GCE
 	struct cmdq_pkt *pkt;
 #endif /* FDVT_USE_GCE */
@@ -1879,6 +1883,7 @@ static signed int config_secure_fdvt_hw(struct fdvt_config *basic_config)
 #endif /* __FDVT_KERNEL_PERFORMANCE_MEASURE__ */
 
 #endif
+#endif /* CMDQ_MTEE */
 #endif /* IS_ENABLED(CONFIG_MTK_CAM_SECURITY_SUPPORT) */
 	return 0;
 }
@@ -2337,6 +2342,13 @@ static signed int fdvt_read_reg(FDVT_REG_IO_STRUCT *pRegIo)
 	    pRegIo->count > (FDVT_REG_RANGE >> 2)) {
 		log_err("%s pRegIo->pData is NULL, count:%d!!",
 			__func__, pRegIo->count);
+		ret = -EFAULT;
+		goto EXIT;
+	}
+
+	if (pData->addr < 0x0 || pData->addr > 0x1000) {
+		log_err("%s pData->addr is out of range",
+			__func__);
 		ret = -EFAULT;
 		goto EXIT;
 	}
@@ -2866,18 +2878,19 @@ static long FDVT_ioctl(struct file *pFile,
 					[fdvt_req_ring.write_idx];
 			if (FDVT_REQUEST_STATE_EMPTY ==
 				request->state) {
+				if (enqueNum >
+					MAX_FDVT_FRAME_REQUEST || enqueNum < 0) {
+					log_err(
+					"FDVT Enque Num is bigger than enqueNum or negtive:%d\n",
+					enqueNum);
+					break;
+				}
 				spin_lock_irqsave(spinlock_lrq_ptr, flags);
 				request->process_id =
 					pUserInfo->pid;
 				request->enque_req_num =
 					enqueNum;
 				spin_unlock_irqrestore(spinlock_lrq_ptr, flags);
-				if (enqueNum >
-					MAX_FDVT_FRAME_REQUEST) {
-					log_err(
-					"FDVT Enque Num is bigger than enqueNum:%d\n",
-					enqueNum);
-				}
 				log_dbg("FDVT_ENQNUE_NUM:%d\n",
 					enqueNum);
 			} else {
@@ -3840,13 +3853,15 @@ static signed int FDVT_probe(struct platform_device *pDev)
 		log_err("cmdq mbox create fail\n");
 	else
 		log_inf("cmdq mbox create done\n");
-
+#if IS_ENABLED(CONFIG_MTK_CAM_SECURITY_SUPPORT)
+#ifdef CMDQ_MTEE
 	fdvt_secure_clt = cmdq_mbox_create(FDVT_dev->dev, 1);
 	if (!fdvt_secure_clt)
 		log_err("cmdq mbox create fail\n");
 	else
 		log_inf("cmdq mbox create done\n");
-
+#endif
+#endif
 	of_property_read_u32(pDev->dev.of_node, "fdvt_frame_done",
 			     &fdvt_event_id);
 	log_inf("fdvt event id is %d\n", fdvt_event_id);

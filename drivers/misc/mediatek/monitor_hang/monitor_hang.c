@@ -18,6 +18,7 @@
 #include <linux/sched.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/debug.h>
+#include <linux/sched/mm.h>
 #include <linux/sched/rt.h>
 #include <linux/sched/task.h>
 #include <uapi/linux/sched/types.h>
@@ -51,6 +52,9 @@
 #include "mrdump/mrdump_mini.h"
 #include "aed/aed.h"
 #include <mrdump.h>
+#ifndef HQ_FACTORY_BUILD	//ss version
+#include <mt-plat/mtk_boot_common.h>
+#endif
 
 #ifndef TASK_STATE_TO_CHAR_STR
 #define TASK_STATE_TO_CHAR_STR "RSDTtZXxKWPNn"
@@ -382,6 +386,10 @@ static ssize_t monitor_hang_write(struct file *filp, const char __user *buf,
 	return count;
 }
 
+#ifndef HQ_FACTORY_BUILD	//ss version
+	extern int hq_get_boot_mode(void);
+#endif
+
 static long monitor_hang_ioctl(struct file *file, unsigned int cmd,
 		unsigned long arg)
 {
@@ -389,6 +397,14 @@ static long monitor_hang_ioctl(struct file *file, unsigned int cmd,
 	static long long monitor_status;
 	void __user *argp = (void __user *)arg;
 	char name[TASK_COMM_LEN] = {0};
+
+#ifndef HQ_FACTORY_BUILD
+	if ((hq_get_boot_mode() == KERNEL_POWER_OFF_CHARGING_BOOT) ||
+		(hq_get_boot_mode() == LOW_POWER_OFF_CHARGING_BOOT)) {
+		pr_err("power off charging,don't start hang_detect\n");
+		return ret;
+	}
+#endif
 
 	if (cmd == HANG_KICK) {
 		pr_info("hang_detect HANG_KICK ( %d)\n", (int)arg);
@@ -880,7 +896,7 @@ static int DumpThreadNativeMaps_log(pid_t pid, struct task_struct *current_task)
 		return -1;
 	}
 
-	if (!current_task->mm) {
+	if (!get_task_mm(current_task)) {
 		pr_info(" %s,%d:%s: current_task->mm == NULL",
 			__func__, pid, current_task->comm);
 		return -1;
@@ -939,6 +955,7 @@ static int DumpThreadNativeMaps_log(pid_t pid, struct task_struct *current_task)
 		mapcount++;
 	}
 	up_read(&current_task->mm->mmap_sem);
+	mmput(current_task->mm);
 
 	return 0;
 }
@@ -1953,7 +1970,11 @@ static int hang_detect_thread(void *arg)
 #ifdef BOOT_UP_HANG
 		if (hd_detect_enabled)
 #else
-		if (hd_detect_enabled && CheckWhiteList())
+#ifndef HQ_FACTORY_BUILD
+		if (hd_detect_enabled && CheckWhiteList() &&
+			(hq_get_boot_mode() != KERNEL_POWER_OFF_CHARGING_BOOT) &&
+			(hq_get_boot_mode() != LOW_POWER_OFF_CHARGING_BOOT))
+#endif
 #endif
 		{
 
@@ -2044,6 +2065,13 @@ int hang_detect_init(void)
 
 	struct task_struct *hd_thread;
 
+#ifndef HQ_FACTORY_BUILD
+	if ((hq_get_boot_mode() == KERNEL_POWER_OFF_CHARGING_BOOT) ||
+		(hq_get_boot_mode() == LOW_POWER_OFF_CHARGING_BOOT)) {
+		pr_err("power off charging,don't start hang_detect\n");
+		return 0;
+	}
+#endif
 	pr_debug("[Hang_Detect] Initialize proc\n");
 	hd_thread = kthread_create(hang_detect_thread, NULL, "hang_detect");
 	if (hd_thread)
@@ -2060,6 +2088,14 @@ int hang_detect_init(void)
 static int __init monitor_hang_init(void)
 {
 	int err = 0;
+
+#ifndef HQ_FACTORY_BUILD
+	if ((hq_get_boot_mode() == KERNEL_POWER_OFF_CHARGING_BOOT) ||
+		(hq_get_boot_mode() == LOW_POWER_OFF_CHARGING_BOOT)) {
+		pr_err("power off charging,don't start monitor_hang\n");
+		return err;
+	}
+#endif
 
 	if (!aee_is_enable())
 		return err;

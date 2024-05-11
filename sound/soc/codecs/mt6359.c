@@ -22,9 +22,11 @@
 
 #include <sound/soc.h>
 #include <sound/tlv.h>
-
-#include "registers.h"
-
+#ifdef CONFIG_MTK_PMIC_CHIP_MT6359P
+#include <linux/mfd/mt6359p/registers.h>
+#else
+#include <linux/mfd/mt6359/registers.h>
+#endif
 #ifdef CONFIG_MTK_ACCDET
 #include "accdet.h"
 #endif
@@ -1228,6 +1230,33 @@ static SOC_VALUE_ENUM_SINGLE_DECL(lo_in_mux_map_enum,
 
 static const struct snd_kcontrol_new lo_in_mux_control =
 	SOC_DAPM_ENUM("LO Select", lo_in_mux_map_enum);
+
+/*Vow micbias MUX */
+enum {
+	VOW_MIABIAS_MUX_CLOSE = 0,
+	VOW_MIABIAS_MUX_OPEN,
+	VOW_MIABIAS_MUX_MASK,
+};
+
+static const char * const vow_micbias_mux_map[] = {
+	"Vow_micbias_off",
+	"Vow_micbias_on",
+};
+
+static int vow_micbias_mux_map_value[] = {
+	VOW_MIABIAS_MUX_CLOSE,
+	VOW_MIABIAS_MUX_OPEN,
+};
+
+static SOC_VALUE_ENUM_SINGLE_AUTODISABLE_DECL(vow_micbias_mux_map_enum,
+				  SND_SOC_NOPM,
+				  0,
+				  1,
+				  vow_micbias_mux_map,
+				  vow_micbias_mux_map_value);
+
+static const struct snd_kcontrol_new vow_micbias_mux_control =
+	SOC_DAPM_ENUM("Vow Micbias", vow_micbias_mux_map_enum);
 
 /*HP MUX */
 enum {
@@ -3900,6 +3929,9 @@ static const struct snd_soc_dapm_widget mt6359_dapm_widgets[] = {
 
 	SND_SOC_DAPM_DAC("DAC_3RD", NULL, SND_SOC_NOPM, 0, 0),
 
+	/* VOW Micbias */
+	SND_SOC_DAPM_MUX("VOW Micbias Mux", SND_SOC_NOPM, 0, 0, &vow_micbias_mux_control),
+
 	/* Headphone */
 	SND_SOC_DAPM_MUX_E("HPL Mux", SND_SOC_NOPM, 0, 0,
 			   &hpl_in_mux_control,
@@ -3953,6 +3985,7 @@ static const struct snd_soc_dapm_widget mt6359_dapm_widgets[] = {
 	SND_SOC_DAPM_OUTPUT("Headphone L Ext Spk Amp"),
 	SND_SOC_DAPM_OUTPUT("Headphone R Ext Spk Amp"),
 	SND_SOC_DAPM_OUTPUT("LINEOUT L"),
+	SND_SOC_DAPM_OUTPUT("VOW DSP"),
 
 	/* SGEN */
 	SND_SOC_DAPM_SUPPLY("SGEN DL Enable", MT6359_AFE_SGEN_CFG0,
@@ -4108,6 +4141,7 @@ static const struct snd_soc_dapm_widget mt6359_dapm_widgets[] = {
 	SND_SOC_DAPM_INPUT("AIN1"),
 	SND_SOC_DAPM_INPUT("AIN2"),
 	SND_SOC_DAPM_INPUT("AIN3"),
+	SND_SOC_DAPM_INPUT("VOW_ONLY"),
 
 	SND_SOC_DAPM_INPUT("AIN0_DMIC"),
 	SND_SOC_DAPM_INPUT("AIN2_DMIC"),
@@ -4338,6 +4372,12 @@ static const struct snd_soc_dapm_route mt6359_dapm_routes[] = {
 	{"AIN2", NULL, "MIC_BIAS_0"},
 	{"AIN2", NULL, "MIC_BIAS_2"},
 	{"AIN3", NULL, "MIC_BIAS_2"},
+
+	{"VOW DSP", NULL, "VOW Micbias Mux"},
+	{"VOW Micbias Mux", "Vow_micbias_on", "VOW_ONLY"},
+	{"VOW_ONLY", NULL, "MIC_BIAS_0"},
+	{"VOW_ONLY", NULL, "MIC_BIAS_2"},
+	{"VOW_ONLY", NULL, "AUDGLB"},
 
 	/* DL Supply */
 	{"DL Power Supply", NULL, "CLK_BUF"},

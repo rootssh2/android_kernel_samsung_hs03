@@ -23,6 +23,7 @@ char * const imgsensor_hw_pin_names[] = {
 #endif
 	"vcamd",
 	"vcamio",
+	"vcamaf",
 #ifdef MIPI_SWITCH
 	"mipi_switch_en",
 	"mipi_switch_sel",

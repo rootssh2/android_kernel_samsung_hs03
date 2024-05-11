@@ -9,15 +9,21 @@ ifeq ($(CONFIG_MACH_MT6768),y)
 subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/v1
 else ifeq ($(CONFIG_MACH_MT6739),y)
 subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/v1
-else ifeq ($(CONFIG_MACH_MT6771),y)
-subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/v1
 else ifeq ($(CONFIG_MACH_MT6781),y)
 subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/v1
 else ifeq ($(CONFIG_MACH_MT6877),y)
 subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/v1
 else ifeq ($(CONFIG_MACH_MT6833),y)
 subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/v1
+else ifeq ($(CONFIG_MACH_MT6885),y)
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/v1
 else ifeq ($(CONFIG_MACH_MT6893),y)
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/v1
+else ifeq ($(CONFIG_MACH_MT6853),y)
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/v1
+else ifeq ($(CONFIG_MACH_MT6873),y)
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/v1
+else ifeq ($(CONFIG_MACH_MT6785),y)
 subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/v1
 else
 obj-$(CONFIG_MTK_POWER_THROTTLING_COMMON) += power_throttling/
@@ -60,6 +66,7 @@ obj-$(CONFIG_MTK_EMI_BWL)	+= emi_bwl/
 obj-$(CONFIG_MTK_EMI_MPU) += emi_mpu/
 obj-$(CONFIG_MMPROFILE) += mmp/
 obj-$(CONFIG_MTK_TRUSTED_MEMORY_SUBSYSTEM) += trusted_mem/
+obj-$(CONFIG_TEEGRIS_TUI) += tui/
 obj-$(CONFIG_MTK_ENABLE_GENIEZONE) += geniezone/
 obj-$(CONFIG_MTK_TEE_SANITY) += tee_sanity/
 obj-$(CONFIG_MTK_CMDQ) += cmdq/
@@ -86,7 +93,10 @@ obj-$(CONFIG_MTK_DVFSRC) += dvfsrc/
 obj-$(CONFIG_MTK_AEE_FEATURE) += aee/
 obj-$(CONFIG_MTK_CLK_BUFFER) += clkbuf/
 obj-$(CONFIG_MTK_QOS_FRAMEWORK) += qos/
+obj-$(CONFIG_MTK_SLBC) += slbc/
+ifneq ($(CONFIG_MACH_MT6893), y)
 obj-$(CONFIG_MTK_CM_MGR) += cm_mgr/
+endif
 ifneq ($(CONFIG_MTK_BASE_POWER), y)
 obj-$(CONFIG_MTK_PPM) += ppm_v3/
 endif
@@ -114,9 +124,7 @@ obj-$(CONFIG_MTK_IOMMU_MISC) += iommu/
 obj-$(CONFIG_INTERCONNECT_MTK_MMQOS_COMMON) += mmqos/
 obj-$(CONFIG_MTK_PERF_COMMON) += perf_common/
 obj-$(CONFIG_MTK_SYSTRACKER_V2) += systracker/
-ifneq ($(CONFIG_MTK_PLATFORM), "mt6771")
 obj-$(CONFIG_MTK_HANG_DETECT) += monitor_hang/
-endif
 ifeq ($(CONFIG_MTK_GAUGE_VERSION),30)
 obj-y += power/
 else
@@ -196,3 +204,5 @@ obj-$(CONFIG_MTK_MDDP_SUPPORT) += mddp/
 obj-$(CONFIG_MTK_GATE_IC) += gate_ic/
 obj-$(CONFIG_MTK_FREQ_HOPPING) += freqhopping/
 obj-$(CONFIG_MTK_TASK_TURBO) += task_turbo/
+obj-$(CONFIG_MTK_USB_OFFLOAD) += usb_offload/
+

@@ -35,7 +35,7 @@
 
 #include "../misc/mediatek/include/mt-plat/mtk_boot_common.h"
 #include "../misc/mediatek/include/mt-plat/mtk_reboot.h"
-
+#include "../misc/mediatek/include/mt-plat/mtk_rtc.h"
 #ifdef pr_fmt
 #undef pr_fmt
 #endif
@@ -587,6 +587,7 @@ static void mtk_rtc_work_queue(struct work_struct *work)
 	} else {
 		msecs = jiffies_to_msecs(ret);
 		pr_notice("%s timeleft= %d\n", __func__, msecs);
+		rtc_mark_kpoc();
 		kernel_restart("kpoc");
 	}
 }
@@ -629,7 +630,7 @@ void mtk_rtc_lp_exception(void)
 	rtc_read(RTC_PROT, &prot);
 	rtc_read(RTC_CON, &con);
 	rtc_read(RTC_TC_SEC, &sec1);
-	mdelay(2000);
+	msleep(2000);
 	rtc_read(RTC_TC_SEC, &sec2);
 
 	pr_emerg("!!! 32K WAS STOPPED !!!\n"

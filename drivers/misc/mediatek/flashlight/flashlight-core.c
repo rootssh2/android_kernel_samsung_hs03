@@ -78,6 +78,10 @@ void __attribute__ ((weak)) kicker_pbm_by_flash(bool status)
 }
 #endif
 
+/* HS03s code for DEVAL5625-1829 by chenjun at 2021/07/01 start */
+static void hs03s_create_torch_node(void);
+/* HS03s code for DEVAL5625-1829 by chenjun at 2021/07/01 end */
+
 /******************************************************************************
  * Flashlight operations
  *****************************************************************************/
@@ -860,6 +864,75 @@ static long _flashlight_ioctl(
 	return ret;
 }
 
+
+/* HS03s code for DEVAL5625-1829 by chenjun at 2021/07/01 start */
+/******************************************************************************
+ * File operations
+ *****************************************************************************/
+static long k_hs03s_flashlight_ioctl(
+		struct file *file, unsigned int cmd, unsigned long arg)
+{
+	struct flashlight_user_arg fl_arg;
+	struct flashlight_dev_arg fl_dev_arg;
+	struct flashlight_dev *fdev;
+	int type, ct, part;
+	int ret = 0;
+
+	memset(&fl_arg, 0, sizeof(struct flashlight_user_arg));
+	if (NULL == memcpy(&fl_arg, (struct flashlight_user_arg*)arg, sizeof(struct flashlight_user_arg))) {
+		pr_info("Failed copy arguments from hs03s node\n");
+		return -EFAULT;
+	}
+
+	/* find flashlight device */
+	mutex_lock(&fl_mutex);
+	fdev = flashlight_find_dev_by_index(
+			flashlight_get_type_index(fl_arg.type_id),
+			flashlight_get_ct_index(fl_arg.ct_id));
+	mutex_unlock(&fl_mutex);
+	if (!fdev) {
+		pr_info_ratelimited("Find no flashlight device\n");
+		return -EINVAL;
+	}
+
+	/* setup flash dev arguments */
+	fl_dev_arg.arg = fl_arg.arg;
+	fl_dev_arg.channel = fdev->dev_id.channel;
+	type = fdev->dev_id.type;
+	ct = fdev->dev_id.ct;
+	part = fdev->dev_id.part;
+
+	if (flashlight_verify_index(type, ct, part)) {
+		pr_info("Failed with error index\n");
+		return -EINVAL;
+	}
+
+	switch (cmd) {
+		case FLASH_IOC_SET_DUTY:
+			pr_info("[hs03s i]FLASH_IOC_SET_DUTY(%d,%d,%d): %d\n",
+					type, ct, part, fl_arg.arg);
+			mutex_lock(&fl_mutex);
+			ret = fl_set_level(fdev, fl_arg.arg);
+			mutex_unlock(&fl_mutex);
+			break;
+
+		case FLASH_IOC_SET_ONOFF:
+			pr_info("[hs03s i]FLASH_IOC_SET_ONOFF(%d,%d,%d): %d\n",
+					type, ct, part, fl_arg.arg);
+			mutex_lock(&fl_mutex);
+			ret = fl_enable(fdev, fl_arg.arg);
+			mutex_unlock(&fl_mutex);
+			break;
+
+		default:
+			pr_info("[hs03s i]Failed with no flashlight ops %d\n", cmd);
+			return -ENOTTY;
+			break;
+	}
+
+	return ret;
+}
+/* HS03s code for DEVAL5625-1829 by chenjun at 2021/07/01 end */
 static long flashlight_ioctl(
 		struct file *file, unsigned int cmd, unsigned long arg)
 {
@@ -903,7 +976,8 @@ static int flashlight_release(struct inode *inode, struct file *file)
 
 		pr_debug("Release(%d,%d,%d)\n", fdev->dev_id.type,
 				fdev->dev_id.ct, fdev->dev_id.part);
-		fl_enable(fdev, 0);
+		if (fdev->enable != 0)
+			fl_enable(fdev, 0);
 		fdev->ops->flashlight_release();
 	}
 	mutex_unlock(&fl_mutex);
@@ -1564,6 +1638,86 @@ unlock:
 }
 static DEVICE_ATTR_RW(flashlight_sw_disable);
 
+/* HS03s code for DEVAL5625-1829 by chenjun at 2021/07/01 start */
+static int hs03s_torch_level=0;
+
+static ssize_t hs03s_torch_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+    return scnprintf(buf, PAGE_SIZE, "%d\n", hs03s_torch_level);
+}
+
+static ssize_t hs03s_torch_store(struct device *dev,struct device_attribute *attr,
+                    const char *buf, size_t len)
+{
+    int set_torch_level;
+	struct flashlight_user_arg fl_arg;
+	int ret;
+    if (kstrtoint(buf, 0, &hs03s_torch_level))
+    {
+        pr_err("[hs03s E] hs03s add the torch stength error");
+        return -EINVAL;
+    }
+	fl_arg.ct_id = 1;
+	fl_arg.type_id = 1;
+
+    // pr_err("[hs03s E] hs03s set torch level is", hs03s_torch_level);
+	switch(hs03s_torch_level)
+    {
+        case 1001:
+            set_torch_level = 1;
+            break;
+        case 1002:
+            set_torch_level = 2;
+            break;
+        case 1003:
+            set_torch_level = 3;
+            break;
+        case 1004:
+        case 1005:
+            set_torch_level = 5;
+            break;
+        case 1006:
+        case 1007:
+        case 1008:
+        case 1009:
+            set_torch_level = 6;
+            break;
+        default:
+            set_torch_level = 3;
+            break;
+    }
+
+	fl_arg.arg = set_torch_level;
+	ret = k_hs03s_flashlight_ioctl(NULL, FLASH_IOC_SET_DUTY, (unsigned long)&fl_arg);
+
+	fl_arg.arg = 1;
+	ret = k_hs03s_flashlight_ioctl(NULL, FLASH_IOC_SET_ONOFF, (unsigned long)&fl_arg);
+
+	pr_err("[hs03s E] hs03s set torch level %d ret = %d", set_torch_level, ret);
+
+	return len;
+}
+
+struct class *hs03s_torch_class;
+struct device *hs03s_torch_dev1;
+
+static DEVICE_ATTR(rear_flash, 0644, hs03s_torch_show, hs03s_torch_store);
+static DEVICE_ATTR(rear_torch_flash, 0644, hs03s_torch_show, hs03s_torch_store);
+
+static void hs03s_create_torch_node(void)
+{
+    hs03s_torch_class = class_create(THIS_MODULE, "camera");
+    hs03s_torch_dev1 = device_create(hs03s_torch_class, NULL, 0, NULL, "flash");
+
+    if (device_create_file(hs03s_torch_dev1, &dev_attr_rear_flash) < 0 || device_create_file(hs03s_torch_dev1, &dev_attr_rear_torch_flash) < 0)
+    {
+        device_destroy(hs03s_torch_class, 0);
+        class_destroy(hs03s_torch_class);
+    }
+}
+/* HS03s code for DEVAL5625-1829 by chenjun at 2021/07/01 end */
+
 /******************************************************************************
  * Platform device and driver
  *****************************************************************************/
@@ -1587,7 +1741,8 @@ static int fl_uninit(void)
 		if (fdev->ops) {
 			fdev->ops->flashlight_open();
 			fdev->ops->flashlight_set_driver(1);
-			fl_enable(fdev, 0);
+			if (fdev->enable != 0)
+				fl_enable(fdev, 0);
 			fdev->ops->flashlight_set_driver(0);
 			fdev->ops->flashlight_release();
 		}
@@ -1684,6 +1839,11 @@ static int flashlight_probe(struct platform_device *dev)
 
 	/* init flashlight */
 	fl_init();
+
+/* HS03s code for DEVAL5625-1829 by chenjun at 2021/07/01 start */
+    hs03s_create_torch_node();
+    pr_err("[hs03s E] hs03s creat torch node OK!");
+/* HS03s code for DEVAL5625-1829 by chenjun at 2021/07/01 end */
 
 	pr_debug("Probe done\n");
 

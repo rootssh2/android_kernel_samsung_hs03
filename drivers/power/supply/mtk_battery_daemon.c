@@ -3038,6 +3038,11 @@ static void mtk_battery_daemon_handler(struct mtk_battery *gm, void *nl_data,
 		memcpy(&daemon_soc, &msg->fgd_data[0], sizeof(daemon_soc));
 		if (soc_type == 0)
 			gm->soc = (daemon_soc + 50) / 100;
+		/*HS03s for SR-AL5625-01-248 by wenyaqi at 20210429 start*/
+		#ifdef HQ_D85_BUILD
+		gm->soc = 50;
+		#endif
+		/*HS03s for SR-AL5625-01-248 by wenyaqi at 20210429 end*/
 
 		bm_debug(
 		"[K]FG_DAEMON_CMD_SET_KERNEL_SOC = %d %d, type:%d\n",

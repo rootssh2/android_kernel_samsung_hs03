@@ -260,11 +260,14 @@ static int fill_psinfo(struct elf_prpsinfo *psinfo)
 #define __pa_nodebug __pa
 #endif
 #endif
-static void mrdump_mini_add_misc_pa(unsigned long va, unsigned long pa,
+void mrdump_mini_add_misc_pa(unsigned long va, unsigned long pa,
 		unsigned long size, unsigned long start, char *name)
 {
 	int i;
 	struct elf_note *note;
+
+	if (!mrdump_mini_ehdr)
+		return;
 
 	for (i = 0; i < MRDUMP_MINI_NR_MISC; i++) {
 		note = &mrdump_mini_ehdr->misc[i].note;
@@ -286,6 +289,7 @@ static void mrdump_mini_add_misc_pa(unsigned long va, unsigned long pa,
 		break;
 	}
 }
+EXPORT_SYMBOL(mrdump_mini_add_misc_pa);
 
 void mrdump_mini_add_misc(unsigned long addr, unsigned long size,
 		unsigned long start, char *name)

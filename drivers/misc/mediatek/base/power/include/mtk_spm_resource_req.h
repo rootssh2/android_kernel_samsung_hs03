@@ -10,10 +10,10 @@
 
 #include "spm_v2/mtk_spm_resource_req.h"
 
-#elif defined(CONFIG_MACH_MT6763) || defined(CONFIG_MACH_MT6739)
+#elif defined(CONFIG_MACH_MT6763) || defined(CONFIG_MACH_MT6739) || defined(CONFIG_MACH_MT6771)
 
 #include "spm_v4/mtk_spm_resource_req.h"
-#elif defined(CONFIG_MACH_MT6768)
+#elif defined(CONFIG_MACH_MT6768) || defined(CONFIG_MACH_MT6785)
 #include "spm_v1/mtk_spm_resource_req.h"
 
 #else

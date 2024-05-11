@@ -17,7 +17,7 @@
  * @param src: src address
  * @param size: memory size
  */
-void mtk_memcpy_to_tinysys(void __iomem *dest, const void *src, int size)
+void mtk_memcpy_to_tinysys(void __iomem *dest, const void *src, uint32_t size)
 {
 	int i;
 	u32 __iomem *t = dest;
@@ -33,7 +33,7 @@ void mtk_memcpy_to_tinysys(void __iomem *dest, const void *src, int size)
  * @param src: src address
  * @param size: memory size
  */
-void mtk_memcpy_from_tinysys(void *dest, const void __iomem *src, int size)
+void mtk_memcpy_from_tinysys(void *dest, const void __iomem *src, uint32_t size)
 {
 	int i;
 	u32 *t = dest;
@@ -54,7 +54,7 @@ int mtk_mbox_write_hd(struct mtk_mbox_device *mbdev, unsigned int mbox,
 	struct mtk_mbox_info *minfo;
 	struct mtk_ipi_msg *ipimsg;
 	void __iomem *base;
-	int len;
+	uint32_t len;
 	unsigned long flags;
 
 	if (!mbdev) {
@@ -74,7 +74,8 @@ int mtk_mbox_write_hd(struct mtk_mbox_device *mbdev, unsigned int mbox,
 	ipimsg = (struct mtk_ipi_msg *)msg;
 	len = ipimsg->ipihd.len;
 
-	if (len > size * MBOX_SLOT_SIZE)
+	if ((slot_ofs + sizeof(struct mtk_ipi_msg_hd) + len)
+		> size * MBOX_SLOT_SIZE)
 		return MBOX_WRITE_SZ_ERR;
 
 	spin_lock_irqsave(&mbdev->info_table[mbox].mbox_lock, flags);
@@ -129,7 +130,8 @@ int mtk_mbox_read_hd(struct mtk_mbox_device *mbdev, unsigned int mbox,
 	size = minfo->slot;
 	ipihd = (struct mtk_ipi_msg_hd *)(base + slot_ofs);
 
-	if (ipihd->len > size * MBOX_SLOT_SIZE)
+	if ((slot_ofs + sizeof(struct mtk_ipi_msg_hd) + ipihd->len)
+		> size * MBOX_SLOT_SIZE)
 		return MBOX_READ_SZ_ERR;
 
 	spin_lock_irqsave(&mbdev->info_table[mbox].mbox_lock, flags);
@@ -472,6 +474,11 @@ int mtk_mbox_polling(struct mtk_mbox_device *mbdev, unsigned int mbox,
 		return ret;
 
 	pin_recv->recv_record.poll_count++;
+
+	/*dump recv info*/
+	if (mbdev->log_enable)
+		mtk_mbox_dump_recv_pin(mbdev, pin_recv);
+
 	return MBOX_DONE;
 }
 EXPORT_SYMBOL_GPL(mtk_mbox_polling);
@@ -479,13 +486,16 @@ EXPORT_SYMBOL_GPL(mtk_mbox_polling);
 /*
  * set lock status
  */
-static void mtk_mbox_set_lock(struct mtk_mbox_device *mbdev, unsigned int lock)
+static void mtk_mbox_set_lock(struct mtk_mbox_device *mbdev, unsigned int mbox,
+		unsigned int lock)
 {
 	struct mtk_mbox_pin_recv *pin_recv;
 	int i;
 
 	for (i = 0; i < mbdev->recv_count; i++) {
 		pin_recv = &(mbdev->pin_recv_table[i]);
+		if (pin_recv->mbox != mbox)
+			continue;
 		pin_recv->lock = lock;
 	}
 }
@@ -514,7 +524,7 @@ static irqreturn_t mtk_mbox_isr(int irq, void *dev_id)
 
 	spin_lock_irqsave(&minfo->mbox_lock, flags);
 	/*lock pin*/
-	mtk_mbox_set_lock(mbdev, MBOX_PIN_BUSY);
+	mtk_mbox_set_lock(mbdev, mbox, MBOX_PIN_BUSY);
 	/*get irq status*/
 	irq_status = mtk_mbox_read_recv_irq(mbdev, mbox);
 	irq_temp = 0;
@@ -623,7 +633,7 @@ skip:
 	spin_lock_irqsave(&minfo->mbox_lock, flags);
 	mtk_mbox_clr_irq(mbdev, mbox, irq_temp);
 	/*release pin*/
-	mtk_mbox_set_lock(mbdev, MBOX_DONE);
+	mtk_mbox_set_lock(mbdev, mbox, MBOX_DONE);
 	spin_unlock_irqrestore(&minfo->mbox_lock, flags);
 
 	if (irq_temp == 0 && irq_status != 0) {

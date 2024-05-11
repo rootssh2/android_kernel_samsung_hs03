@@ -8,6 +8,15 @@
 #include <mtk_gauge_class.h>
 #include <mtk_battery_internal.h>
 
+signed int __attribute__((weak)) battery_get_precise_soc(void)
+{
+	return 0;
+}
+
+signed int __attribute__((weak)) battery_get_precise_uisoc(void)
+{
+	return 0;
+}
 
 #if (CONFIG_MTK_GAUGE_VERSION != 30)
 signed int battery_get_bat_voltage(void)
@@ -32,14 +41,18 @@ signed int battery_get_soc(void)
 
 signed int battery_get_uisoc(void)
 {
-	int boot_mode = 0; //phase out api: get_boot_mode();
-
-	if ((boot_mode == META_BOOT) ||
-		(boot_mode == ADVMETA_BOOT) ||
-		(boot_mode == FACTORY_BOOT) ||
-		(boot_mode == ATE_FACTORY_BOOT))
-		return 75;
-
+         /*hs14 code for AL6528A-66 by piaocanxi at 20220924 start*/
+        struct mtk_battery *gm = get_mtk_battery();
+	int boot_mode = gm->boot_mode;
+	if (gm != NULL) {
+		if ((boot_mode == ADVMETA_BOOT) ||
+			(boot_mode == FACTORY_BOOT) ||
+			(boot_mode == ATE_FACTORY_BOOT))
+                        return 75;
+		else if (boot_mode == 0 || boot_mode == META_BOOT)
+			return gm->ui_soc;
+	}
+        /*hs14 code for AL6528A-66 by piaocanxi at 20220924 end*/
 	return 50;
 }
 
@@ -95,18 +108,19 @@ signed int battery_get_soc(void)
 
 signed int battery_get_uisoc(void)
 {
-	int boot_mode = 0; //phase out api: get_boot_mode();
-
-	if ((boot_mode == META_BOOT) ||
-		(boot_mode == ADVMETA_BOOT) ||
-		(boot_mode == FACTORY_BOOT) ||
-		(boot_mode == ATE_FACTORY_BOOT))
-		return 75;
-
-	if (get_mtk_battery() != NULL)
-		return get_mtk_battery()->ui_soc;
-	else
-		return 50;
+        /*hs14 code for AL6528A-66 by piaocanxi at 20220924 start*/
+        struct mtk_battery *gm = get_mtk_battery();
+	int boot_mode = gm->boot_mode;
+	if (gm != NULL) {
+		if ((boot_mode == ADVMETA_BOOT) ||
+			(boot_mode == FACTORY_BOOT) ||
+			(boot_mode == ATE_FACTORY_BOOT))
+                        return 75;
+		else if (boot_mode == 0 || boot_mode == META_BOOT)
+			return gm->ui_soc;
+	}
+        /*hs14 code for AL6528A-66 by piaocanxi at 20220924 end*/
+	return 50;
 }
 
 signed int battery_get_bat_temperature(void)

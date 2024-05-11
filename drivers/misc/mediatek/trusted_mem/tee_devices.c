@@ -172,7 +172,8 @@ create_tee_smem_device(enum TRUSTED_MEM_TYPE mem_type,
 		return NULL;
 	}
 
-#if defined(CONFIG_TRUSTONIC_TEE_SUPPORT) || defined(CONFIG_MICROTRUST_TEE_SUPPORT)
+#if defined(CONFIG_TRUSTONIC_TEE_SUPPORT) || defined(CONFIG_MICROTRUST_TEE_SUPPORT) || \
+defined(CONFIG_TEEGRIS_TEE_SUPPORT)
 	get_tee_peer_ops(&t_device->peer_ops);
 #endif
 	t_device->dev_desc = dev_desc;

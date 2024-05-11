@@ -1057,11 +1057,29 @@ static int __init early_init_dt_get_chosen(unsigned long node,
 	return 1;
 }
 
+static struct device_node *find_chosen_node(void)
+{
+	struct device_node *np_chosen = NULL;
+
+	np_chosen = of_find_node_by_path("/chosen");
+
+	if (!np_chosen) {
+		CCCI_UTIL_ERR_MSG("warning: not find node: '/chosen'\n");
+		np_chosen = of_find_node_by_path("/chosen@0");
+		if (!np_chosen) {
+			CCCI_UTIL_ERR_MSG("error: not find node: '/chosen@0'\n");
+			return NULL;
+		}
+	}
+	return np_chosen;
+}
+
 static int __init collect_lk_boot_arguments(void)
 {
 	/* Device tree method */
 	int ret;
 	unsigned int *raw_ptr = NULL;
+	struct device_node *np_chosen = NULL;
 
 	/* This function will initialize s_g_dt_chosen_node */
 	ret = of_scan_flat_dt(early_init_dt_get_chosen, NULL);
@@ -1077,6 +1095,19 @@ static int __init collect_lk_boot_arguments(void)
 		if (lk_info_parsing_v2(raw_ptr) == 1) /* No md enabled in LK */
 			return 0;
 		goto _common_process;
+	} else {
+		np_chosen = find_chosen_node();
+		if (np_chosen) {
+			raw_ptr = (unsigned int *)of_get_property(
+					np_chosen,
+					"ccci,modem_info_v2", NULL);
+			if (raw_ptr) {
+				if (lk_info_parsing_v2(raw_ptr) == 1) /* No md enabled in LK */
+					return 0;
+				goto _common_process;
+			}
+		} else
+			CCCI_UTIL_ERR_MSG("device node no chosen node\n");
 	}
 
 	CCCI_UTIL_INF_MSG("ccci,modem_info_v2 not found, try v1\n");

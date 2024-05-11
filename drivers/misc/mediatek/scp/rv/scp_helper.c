@@ -466,7 +466,9 @@ void scp_A_register_notify(struct notifier_block *nb)
 	 */
 	case SCP_EVENT_READY:
 		nb->notifier_call(nb, SCP_EVENT_READY, NULL);
+		blocking_notifier_chain_register(&scp_A_notifier_list, nb);
 		pr_debug("%s callback finished\n", __func__);
+		break;
 	case SCP_EVENT_STOP:
 		blocking_notifier_chain_register(&scp_A_notifier_list, nb);
 		pr_debug("%s register finished\n", __func__);
@@ -1464,7 +1466,7 @@ void scp_register_feature(enum feature_id id)
 		return;
 	}
 
-	if (id >= NUM_FEATURE_ID) {
+	if (id < 0 || id >= NUM_FEATURE_ID) {
 		pr_notice("[SCP] %s, invalid feature id:%u, max id:%u\n",
 			__func__, id, NUM_FEATURE_ID - 1);
 		return;
@@ -1527,7 +1529,7 @@ void scp_deregister_feature(enum feature_id id)
 		return;
 	}
 
-	if (id >= NUM_FEATURE_ID) {
+	if (id < 0 || id >= NUM_FEATURE_ID) {
 		pr_notice("[SCP] %s, invalid feature id:%u, max id:%u\n",
 			__func__, id, NUM_FEATURE_ID - 1);
 		return;
@@ -1791,7 +1793,7 @@ static void wait_scp_ready_to_reboot(void)
 	}
 
 	if (retry == 0)
-		pr_notice("[SCP] SCP don't stay in wfi c0:%x c1:%x\n", c0, c1);
+		pr_notice("[SCP] SCP don't stay in wfi c0:%lx c1:%lx\n", c0, c1);
 }
 /*
  * callback function for work struct
@@ -2588,14 +2590,6 @@ static int __init scp_init(void)
 
 	scp_dvfs_init();
 	wait_scp_dvfs_init_done();
-
-	if (scp_dvfs_feature_enable()) {
-		/* pll maybe gate, request pll before access any scp reg/sram */
-		scp_pll_ctrl_set(PLL_ENABLE, CLK_26M);
-
-		/* keep Univpll */
-		scp_resource_req(SCP_REQ_26M);
-	}
 
 	if (platform_driver_register(&mtk_scp_device))
 		pr_notice("[SCP] scp probe fail\n");

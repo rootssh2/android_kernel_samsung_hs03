@@ -149,6 +149,8 @@ static void md_cd_exception(struct ccci_modem *md, enum HIF_EX_STAGE stage)
 
 	CCCI_ERROR_LOG(md->index, TAG, "MD exception HIF %d\n", stage);
 	ccci_event_log("md%d:MD exception HIF %d\n", md->index, stage);
+
+	__pm_wakeup_event(md->trm_wake_lock, jiffies_to_msecs(50 * HZ));
 	/* in exception mode, MD won't sleep, so we do not
 	 * need to request MD resource first
 	 */
@@ -213,6 +215,8 @@ static void polling_ready(struct ccci_modem *md, int step)
 		if (md_info->channel_id & (1 << step)) {
 			CCCI_DEBUG_LOG(md->index, TAG,
 				"poll RCHNUM %d\n", md_info->channel_id);
+			ccif_write32(md_info->ap_ccif_base,
+				APCCIF_ACK, (1 << step));
 			return;
 		}
 		msleep(time_once);
@@ -228,12 +232,15 @@ static int md_cd_ee_handshake(struct ccci_modem *md, int timeout)
 	 * D2H_EXCEPTION_CLEARQ_DONE together
 	 */
 	/*polling_ready(md_ctrl, D2H_EXCEPTION_INIT);*/
+	__pm_wakeup_event(md->trm_wake_lock, jiffies_to_msecs(20 * HZ));
 	md_cd_exception(md, HIF_EX_INIT);
+	__pm_wakeup_event(md->trm_wake_lock, jiffies_to_msecs(20 * HZ));
 	polling_ready(md, D2H_EXCEPTION_INIT_DONE);
 	md_cd_exception(md, HIF_EX_INIT_DONE);
-
+	__pm_wakeup_event(md->trm_wake_lock, jiffies_to_msecs(20 * HZ));
 	polling_ready(md, D2H_EXCEPTION_CLEARQ_DONE);
 	md_cd_exception(md, HIF_EX_CLEARQ_DONE);
+	__pm_wakeup_event(md->trm_wake_lock, jiffies_to_msecs(20 * HZ));
 
 	polling_ready(md, D2H_EXCEPTION_ALLQ_RESET);
 	md_cd_exception(md, HIF_EX_ALLQ_RESET);
@@ -250,26 +257,28 @@ int md_fsm_exp_info(int md_id, unsigned int channel_id)
 	md = ccci_md_get_modem_by_id(md_id);
 	if (!md)
 		return 0;
+
+	md_info = (struct md_sys1_info *)md->private_data;
 	if (channel_id & (1 << D2H_EXCEPTION_INIT)) {
 		ccci_fsm_recv_md_interrupt(md->index, MD_IRQ_CCIF_EX);
+		md_info->channel_id = channel_id & ~(1 << D2H_EXCEPTION_INIT);
 		return 0;
 	}
-	md_info = (struct md_sys1_info *)md->private_data;
-	md_info->channel_id = channel_id;
-
-	if (md_info->channel_id & (1<<AP_MD_PEER_WAKEUP))
+	if (channel_id & (1<<AP_MD_PEER_WAKEUP)) {
 		__pm_wakeup_event(md_info->peer_wake_lock,
 			jiffies_to_msecs(HZ));
-	if (md_info->channel_id & (1<<AP_MD_SEQ_ERROR)) {
+		channel_id &= ~(1 << AP_MD_PEER_WAKEUP);
+	}
+	if (channel_id & (1<<AP_MD_SEQ_ERROR)) {
 		CCCI_ERROR_LOG(md->index, TAG, "MD check seq fail\n");
 		md->ops->dump_info(md, DUMP_FLAG_CCIF, NULL, 0);
+		channel_id &= ~(1 << AP_MD_SEQ_ERROR);
 	}
-
-	if (md_info->channel_id & (1 << D2H_EXCEPTION_INIT)) {
+	if (channel_id & (1 << D2H_EXCEPTION_INIT)) {
 		/* do not disable IRQ, as CCB still needs it */
 		ccci_fsm_recv_md_interrupt(md->index, MD_IRQ_CCIF_EX);
 	}
-
+	md_info->channel_id |= channel_id;
 	return 0;
 }
 EXPORT_SYMBOL(md_fsm_exp_info);
@@ -291,6 +300,14 @@ static inline int md_sys1_sw_init(struct ccci_modem *md)
 			md->md_wdt_irq_id, ret);
 		return ret;
 	}
+
+#if (MD_GENERATION >= 6297)
+	ret = irq_set_irq_wake(md->md_wdt_irq_id, 1);
+	if (ret)
+		CCCI_ERROR_LOG(md->index, TAG,
+			"irq_set_irq_wake MD_WDT IRQ(%d) error %d\n",
+			md->md_wdt_irq_id, ret);
+#endif
 	return 0;
 }
 
@@ -403,6 +420,9 @@ static int md_cd_start(struct ccci_modem *md)
 	atomic_set(&md->reset_on_going, 0);
 
 	md->per_md_data.md_dbg_dump_flag = MD_DBG_DUMP_AP_REG;
+
+	/* Notify ATF update md sec smem info */
+	ccci_get_md_sec_smem_size_and_update();
 
 	/* 7. let modem go */
 	if (md->hw_info->plat_ptr->let_md_go)
@@ -588,6 +608,9 @@ static void debug_in_flight_mode(struct ccci_modem *md)
 static int md_cd_stop(struct ccci_modem *md, unsigned int stop_type)
 {
 	int ret = 0;
+	int i;
+	struct md_sys1_info *md_info = (struct md_sys1_info *)md->private_data;
+	unsigned int rx_ch_bitmap;
 
 	CCCI_NORMAL_LOG(md->index, TAG,
 		"modem is power off, stop_type=%d\n", stop_type);
@@ -609,6 +632,23 @@ static int md_cd_stop(struct ccci_modem *md, unsigned int stop_type)
 		cldma_plat_hw_reset(md->index);
 		cldma_plat_set_clk_cg(md->index, 0);
 	}
+
+	rx_ch_bitmap = ccif_read32(md_info->md_ccif_base, APCCIF_RCHNUM);
+	if (rx_ch_bitmap) {
+		CCCI_NORMAL_LOG(md->index, TAG,
+			"CCIF rx bitmap: 0x%x\n", rx_ch_bitmap);
+		for (i = 0; i < CCIF_CH_NUM; i++) {
+			/* Ack one by one */
+			if (rx_ch_bitmap & (1 << i))
+				ccif_write32(md_info->md_ccif_base,
+					APCCIF_ACK, (1 << i));
+		}
+		rx_ch_bitmap =
+			ccif_read32(md_info->md_ccif_base, APCCIF_RCHNUM);
+		CCCI_NORMAL_LOG(md->index, TAG,
+			"CCIF rx bitmap: 0x%x(after ack)\n", rx_ch_bitmap);
+	}
+
 	/* Check EMI after */
 	if (md->hw_info->plat_ptr->check_emi_state)
 		md->hw_info->plat_ptr->check_emi_state(md, 0);
@@ -778,6 +818,8 @@ static void config_ap_runtime_data_v2_1(struct ccci_modem *md,
 		ccci_md_get_smem_by_user_id(md->index,
 			SMEM_USER_RAW_RUNTIME_DATA);
 
+	int sec_smem_size = ccci_get_md_sec_smem_size_and_update();
+
 	ap_feature->head_pattern = AP_FEATURE_QUERY_PATTERN;
 	/*AP query MD feature set */
 
@@ -792,7 +834,7 @@ static void config_ap_runtime_data_v2_1(struct ccci_modem *md,
 	ap_feature->noncached_mpu_start_addr =
 		md->mem_layout.md_bank4_noncacheable_total.base_md_view_phy;
 	ap_feature->noncached_mpu_total_size =
-		md->mem_layout.md_bank4_noncacheable_total.size;
+		md->mem_layout.md_bank4_noncacheable_total.size + sec_smem_size;
 	ap_feature->cached_mpu_start_addr =
 		md->mem_layout.md_bank4_cacheable_total.base_md_view_phy;
 	ap_feature->cached_mpu_total_size =
@@ -1333,6 +1375,21 @@ static void md_cd_sysfs_init(struct ccci_modem *md)
 			ccci_md_attr_parameter.attr.name, ret);
 }
 
+/* weak function for compatibility */
+int __weak ccci_modem_suspend_noirq(struct device *dev)
+{
+	CCCI_NORMAL_LOG(-1, TAG,
+		"%s:weak function\n", __func__);
+	return 0;
+}
+
+int __weak ccci_modem_resume_noirq(struct device *dev)
+{
+	CCCI_NORMAL_LOG(-1, TAG,
+		"%s:weak function\n", __func__);
+	return 0;
+}
+
 int __weak ccci_modem_plt_suspend(struct ccci_modem *md)
 {
 	CCCI_NORMAL_LOG(0, TAG, "[%s] md->hif_flag = %d,move to drivers module\n",
@@ -1514,6 +1571,8 @@ static const struct dev_pm_ops ccci_modem_pm_ops = {
 	.poweroff = ccci_modem_pm_suspend,
 	.restore = ccci_modem_pm_resume,
 	.restore_noirq = ccci_modem_pm_restore_noirq,
+	.suspend_noirq = ccci_modem_suspend_noirq,
+	.resume_noirq = ccci_modem_resume_noirq,
 };
 
 #ifdef CONFIG_OF

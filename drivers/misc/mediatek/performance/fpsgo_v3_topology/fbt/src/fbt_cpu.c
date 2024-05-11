@@ -738,12 +738,29 @@ static void fbt_set_idleprefer_locked(int enable)
 
 static void fbt_set_down_throttle_locked(int nsec)
 {
+	if (!fbt_down_throttle_enable)
+		return;
 
+	if (down_throttle_ns == nsec)
+		return;
+
+	xgf_trace("fpsgo set down_throttle %d", nsec);
+	update_schedplus_down_throttle_ns(EAS_THRES_KIR_FPSGO, nsec);
+	update_schedplus_up_throttle_ns(EAS_THRES_KIR_FPSGO, nsec);
+	down_throttle_ns = nsec;
 }
 
 static void fbt_set_sync_flag_locked(int input)
 {
+	if (!fbt_sync_flag_enable)
+		return;
 
+	if (sync_flag == input)
+		return;
+
+	xgf_trace("fpsgo set sync_flag %d", input);
+	update_schedplus_sync_flag(EAS_SYNC_FLAG_KIR_FPSGO, input);
+	sync_flag = input;
 }
 
 static void fbt_set_ultra_rescue_locked(int input)
@@ -1802,6 +1819,7 @@ static void fbt_do_jerk_locked(struct render_info *thr, struct fbt_jerk *jerk, i
 
 	mutex_lock(&fbt_mlock);
 
+	rescue_opp_c = clamp(rescue_opp_c, 0, NR_FREQ_CPU - 1);
 	blc_wt = fbt_get_new_base_blc(pld, blc_wt, rescue_enhance_f, rescue_opp_c);
 	if (!blc_wt)
 		goto EXIT;
@@ -3912,6 +3930,7 @@ void fpsgo_uboost2fbt_uboost(struct render_info *thr)
 	if (!floor)
 		goto leave;
 
+	rescue_opp_c = clamp(rescue_opp_c, 0, NR_FREQ_CPU - 1);
 	headroom = rescue_opp_c;
 	if (thr->boost_info.cur_stage == FPSGO_JERK_SECOND)
 		headroom = rescue_second_copp;

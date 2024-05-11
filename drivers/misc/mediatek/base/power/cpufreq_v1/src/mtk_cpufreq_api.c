@@ -6,6 +6,7 @@
 #include "mtk_cpufreq_internal.h"
 #include "mtk_cpufreq_hybrid.h"
 #include "mtk_cpufreq_platform.h"
+#include <trace/events/power.h>
 
 //#ifdef CONFIG_MTK_CM_MGR_LEGACY
 cpuFreqsampler_func g_pCpuFreqSampler_func_cpi;
@@ -22,6 +23,12 @@ int mt_cpufreq_set_by_wfi_load_cluster(unsigned int cluster_id,
 {
 #ifdef CONFIG_HYBRID_CPU_DVFS
 	enum mt_cpu_dvfs_id id = (enum mt_cpu_dvfs_id) cluster_id;
+	struct mt_cpu_dvfs *p = id_to_cpu_dvfs(id);
+#if defined(CONFIG_MACH_MT6893) || defined(CONFIG_MACH_MT6877) \
+	|| defined(CONFIG_MACH_MT6781)
+	struct cpufreq_policy *policy = p->mt_policy;
+	int cpu;
+#endif
 
 	if (freq < mt_cpufreq_get_freq_by_idx(id, 15))
 		freq = mt_cpufreq_get_freq_by_idx(id, 15);
@@ -29,14 +36,24 @@ int mt_cpufreq_set_by_wfi_load_cluster(unsigned int cluster_id,
 	if (freq > mt_cpufreq_get_freq_by_idx(id, 0))
 		freq = mt_cpufreq_get_freq_by_idx(id, 0);
 
-//#ifdef CONFIG_MTK_CM_MGR_LEGACY
+	//#ifdef CONFIG_MTK_CM_MGR_LEGACY
 	if (g_pCpuFreqSampler_func_cpi)
 		g_pCpuFreqSampler_func_cpi(id, freq);
-//#endif /* CONFIG_MTK_CM_MGR */
+	//#endif /* CONFIG_MTK_CM_MGR */
 
-	cpuhvfs_set_dvfs(id, freq);
+#if defined(CONFIG_MACH_MT6893) || defined(CONFIG_MACH_MT6877) \
+	|| defined(CONFIG_MACH_MT6781)
+	for_each_cpu(cpu, policy->cpus)
+		trace_cpu_frequency(freq, cpu);
 #endif
-
+	cpuhvfs_set_dvfs(id, freq);
+#if defined(CONFIG_MACH_MT6893) || defined(CONFIG_MACH_MT6877) \
+	|| defined(CONFIG_MACH_MT6781)
+	policy->cur = freq;
+#endif
+	if( p != NULL && p->mt_policy != NULL)
+		arch_set_freq_scale(p->mt_policy->cpus, freq, p->mt_policy->cpuinfo.max_freq);
+#endif
 	return 0;
 }
 EXPORT_SYMBOL(mt_cpufreq_set_by_wfi_load_cluster);
@@ -301,6 +318,24 @@ unsigned int mt_cpufreq_get_freq_by_idx(enum mt_cpu_dvfs_id id, int idx)
 #endif
 }
 EXPORT_SYMBOL(mt_cpufreq_get_freq_by_idx);
+
+unsigned int mt_cpufreq_get_cpu_freq(int cpu, int idx)
+{
+#ifndef CONFIG_NONLINEAR_FREQ_CTL
+	return 0;
+#else
+	int cluster_id;
+	struct mt_cpu_dvfs *p;
+
+	cluster_id = cpufreq_get_cluster_id(cpu);
+	p = id_to_cpu_dvfs(cluster_id);
+	idx = (p->nr_opp_tbl - 1) - idx;
+	if (idx >=  p->nr_opp_tbl || idx < 0)
+		return 0;
+	return mt_cpufreq_get_freq_by_idx(cluster_id, idx);
+#endif
+}
+EXPORT_SYMBOL(mt_cpufreq_get_cpu_freq);
 
 unsigned int mt_cpufreq_get_volt_by_idx(enum mt_cpu_dvfs_id id, int idx)
 {

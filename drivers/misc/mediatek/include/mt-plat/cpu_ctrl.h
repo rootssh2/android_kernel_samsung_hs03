@@ -18,6 +18,9 @@ enum {
 	CPU_KIR_CCCI,
 	CPU_KIR_SYSLIM,
 	CPU_KIR_CORE_CTL,
+#ifdef CONFIG_SEC_INPUT_BOOSTER
+	CPU_KIR_INPUT_BOOSTER,
+#endif
 	CPU_MAX_KIR
 };
 
@@ -39,14 +42,23 @@ struct cpu_ctrl_data {
 unsigned int __attribute__ ((weak))  mt_cpufreq_get_freq_by_idx(
 	unsigned int cid, int idx) { return 0; }
 #else
+#ifdef MTK_MT6739_MTK_CPU_FREQ
+extern unsigned int mt_cpufreq_get_freq_by_idx(int id, int idx);
+#else
 static inline unsigned int mt_cpufreq_get_freq_by_idx(
 	int cid, int idx) { return 0; }
+#endif
 #endif
 
 extern int update_userlimit_cpu_freq(int kicker, int num_cluster
 				, struct cpu_ctrl_data *freq_limit);
 extern int update_userlimit_cpu_core(int kicker, int num_cluster
 				, struct cpu_ctrl_data *core_limit);
+extern int sched_isolate_cpu(int cpu);
+extern int sched_deisolate_cpu(int cpu);
+
+int update_cpu_core_limit(int kicker, int cid, int min, int max);
+void update_isolation_cpu(int kicker, int enable, int cpu);
 
 #endif /* _CPU_CTRL_H */
 

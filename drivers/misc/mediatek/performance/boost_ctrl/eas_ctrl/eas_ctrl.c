@@ -28,6 +28,7 @@ static struct mutex boost_eas;
 static bool perf_sched_big_task_rotation;
 static pid_t last_cpu_prefer_pid;
 static int last_cpu_perfer_type;
+static int sched_ramup_factor; /*0 means disable (min:1%,max 100%)*/
 
 #ifdef MTK_K14_EAS_BOOST
 #include "eas_ctrl.h"
@@ -236,6 +237,37 @@ static int perfmgr_sched_isolated_proc_show(struct seq_file *m, void *v)
 
 	return 0;
 }
+
+static ssize_t perfmgr_sched_forked_ramup_factor_proc_write(struct file *filp,
+		const char *ubuf, size_t cnt, loff_t *pos)
+{
+	unsigned int val = 0;
+	int rv = check_proc_write(&val, ubuf, cnt);
+
+	if (rv != 0)
+		return rv;
+
+	if (val > 100)
+		return -EINVAL;
+
+	sched_ramup_factor = val;
+
+	return cnt;
+}
+
+static int perfmgr_sched_forked_ramup_factor_proc_show(struct seq_file *m, void *v)
+{
+
+	seq_printf(m, "ramp_factor = %d\n", sched_ramup_factor);
+
+	return 0;
+}
+
+int sched_forked_ramup_factor(void)
+{
+	return sched_ramup_factor;
+}
+EXPORT_SYMBOL(sched_forked_ramup_factor);
 
 #ifdef MTK_K14_EAS_BOOST
 static void walt_mode(int enable)
@@ -739,6 +771,7 @@ PROC_FOPS_RW(sched_stune_task_thresh);
 #endif
 PROC_FOPS_RW(sched_big_task_rotation);
 PROC_FOPS_RW(sched_boost);
+PROC_FOPS_RW(sched_forked_ramup_factor);
 PROC_FOPS_RW(cpu_prefer);
 
 #ifdef MTK_K14_EAS_BOOST
@@ -767,6 +800,7 @@ PROC_FOPS_RO(sched_isolated);
 /*******************************************/
 int eas_ctrl_init(struct proc_dir_entry *parent)
 {
+#ifdef CONFIG_MTK_SCHED_EXTENSION
 	int ret = 0;
 	size_t i;
 #ifdef MTK_K14_EAS_BOOST
@@ -787,6 +821,7 @@ int eas_ctrl_init(struct proc_dir_entry *parent)
 #endif
 		PROC_ENTRY(sched_big_task_rotation),
 		PROC_ENTRY(sched_boost),
+		PROC_ENTRY(sched_forked_ramup_factor),
 		PROC_ENTRY(cpu_prefer),
 		PROC_ENTRY(set_sched_isolation),
 		PROC_ENTRY(set_sched_deisolation),
@@ -808,7 +843,6 @@ int eas_ctrl_init(struct proc_dir_entry *parent)
 		PROC_ENTRY(boot_boost),
 #endif
 	};
-	mutex_init(&boost_eas);
 
 	/* create procfs */
 	for (i = 0; i < ARRAY_SIZE(entries); i++) {
@@ -847,7 +881,11 @@ int eas_ctrl_init(struct proc_dir_entry *parent)
 #endif
 	last_cpu_prefer_pid = (pid_t)0;
 	last_cpu_perfer_type = 0;
-
 out:
-	return ret;
+#endif
+	/* Init sched_rampup_factor */
+	sched_ramup_factor = 0;
+
+	mutex_init(&boost_eas);
+	return 0;
 }

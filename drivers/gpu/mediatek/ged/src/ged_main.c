@@ -41,6 +41,10 @@
 #include "ged_ge.h"
 #include "ged_gpu_tuner.h"
 
+#ifdef GED_SKI_SUPPORT
+#include "ged_ski.h"
+#endif
+
 /**
  * ===============================================
  * SECTION : Local functions declaration
@@ -185,6 +189,14 @@ static long ged_dispatch(struct file *pFile,
 					psBridgePackageKM->ui32FunctionID)) {
 				inputBufferSize = sizeof(int) +
 				sizeof(uint32_t) * GE_ALLOC_STRUCT_NUM;
+				// hardcode region_num = GE_ALLOC_STRUCT_NUM,
+				// need check input buffer size
+				if (psBridgePackageKM->i32InBufferSize <
+					inputBufferSize) {
+					GED_LOGE("Failed to regoin_num,it must be %d\n",
+						GE_ALLOC_STRUCT_NUM);
+					goto dispatch_exit;
+				}
 			}
 
 			if (inputBufferSize <= KMALLOC_MAX_SIZE)
@@ -476,6 +488,14 @@ static int ged_pdrv_probe(struct platform_device *pdev)
 		goto ERROR;
 	}
 
+#ifdef GED_SKI_SUPPORT
+	err = ged_ski_init();
+	if (unlikely(err != GED_OK)) {
+		GED_LOGE("Failed to init SKI!\n");
+		goto ERROR;
+	}
+#endif
+
 #ifndef GED_BUFFER_LOG_DISABLE
 	ghLogBuf_GPU = ged_log_buf_alloc(512, 128 * 512,
 		GED_LOG_BUF_TYPE_RINGBUFFER, "GPU_FENCE", NULL);
@@ -570,6 +590,10 @@ static void ged_exit(void)
 	ged_log_buf_free(ghLogBuf_GPU);
 	ghLogBuf_GPU = 0;
 #endif /* GED_BUFFER_LOG_DISABLE */
+
+#ifdef GED_SKI_SUPPORT
+	ged_ski_exit();
+#endif
 
 	ged_gpu_tuner_exit();
 

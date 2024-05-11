@@ -984,6 +984,11 @@ bool cmdq_core_profile_pqreadback_enabled(void)
 	return cmdq_ctx.enableProfile & (1 << CMDQ_PROFILE_PQRB);
 }
 
+bool cmdq_core_ftrace2_enabled(void)
+{
+	return cmdq_ctx.enableProfile & (1 << CMDQ_PROFILE_FTRACE2);
+}
+
 void cmdq_long_string_init(bool force, char *buf, u32 *offset, s32 *max_size)
 {
 	buf[0] = '\0';
@@ -4239,8 +4244,7 @@ void cmdq_pkt_release_handle(struct cmdqRecStruct *handle)
 	cmdq_core_track_handle_record(handle, handle->thread);
 
 	/* TODO: remove is_secure check */
-	if (handle->thread != CMDQ_INVALID_THREAD &&
-		!handle->secData.is_secure) {
+	if (handle->thread != CMDQ_INVALID_THREAD) {
 		ctx = cmdq_core_get_context();
 		mutex_lock(&ctx->thread[(u32)handle->thread].thread_mutex);
 		/* PMQoS Implement */
@@ -4494,7 +4498,21 @@ s32 cmdq_pkt_wait_flush_ex_result(struct cmdqRecStruct *handle)
 
 	status = cmdq_pkt_wait_complete(handle->pkt);
 
-	if (handle->profile_exec) {
+	if (status != -EINVAL) {
+		u64 submit_sec, wait_sec;
+		unsigned long submit_rem, wait_rem;
+
+		submit_sec = handle->pkt->rec_submit;
+		submit_rem = do_div(submit_sec, 1000000000);
+		wait_sec = handle->pkt->rec_wait;
+		wait_rem = do_div(wait_sec, 1000000000);
+		CMDQ_SYSTRACE2_BEGIN("%s %u %llu.%06lu %llu.%06lu\n", __func__,
+			handle->pkt->cmd_buf_size, submit_sec, submit_rem / 1000,
+			wait_sec, wait_rem / 1000);
+		CMDQ_SYSTRACE2_END();
+	}
+
+	if (handle->profile_exec && cmdq_util_is_feature_en(CMDQ_LOG_FEAT_PERF)) {
 		u32 *va = cmdq_pkt_get_perf_ret(handle->pkt);
 
 		if (va) {
@@ -4653,31 +4671,29 @@ static s32 cmdq_pkt_flush_async_ex_impl(struct cmdqRecStruct *handle,
 	mutex_lock(&ctx->thread[(u32)handle->thread].thread_mutex);
 
 	/* TODO: remove pmqos in seure path */
-	if (!handle->secData.is_secure) {
-		/* PMQoS */
-		CMDQ_SYSTRACE_BEGIN("%s_pmqos\n", __func__);
-		mutex_lock(&cmdq_thread_mutex);
-		handle_count = ctx->thread[(u32)handle->thread].handle_count;
+	/* PMQoS */
+	CMDQ_SYSTRACE_BEGIN("%s_pmqos\n", __func__);
+	mutex_lock(&cmdq_thread_mutex);
+	handle_count = ctx->thread[(u32)handle->thread].handle_count;
 
-		pmqos_handle_list = kcalloc(handle_count + 1,
-			sizeof(*pmqos_handle_list), GFP_KERNEL);
+	pmqos_handle_list = kcalloc(handle_count + 1,
+		sizeof(*pmqos_handle_list), GFP_KERNEL);
 
-		if (pmqos_handle_list) {
-			if (handle_count)
-				cmdq_core_get_pmqos_handle_list(handle,
-					pmqos_handle_list, handle_count);
+	if (pmqos_handle_list) {
+		if (handle_count)
+			cmdq_core_get_pmqos_handle_list(handle,
+				pmqos_handle_list, handle_count);
 
-			pmqos_handle_list[handle_count] = handle;
-		}
-
-		cmdq_core_group_begin_task(handle, pmqos_handle_list,
-			handle_count + 1);
-
-		kfree(pmqos_handle_list);
-		ctx->thread[(u32)handle->thread].handle_count++;
-		mutex_unlock(&cmdq_thread_mutex);
-		CMDQ_SYSTRACE_END();
+		pmqos_handle_list[handle_count] = handle;
 	}
+
+	cmdq_core_group_begin_task(handle, pmqos_handle_list,
+		handle_count + 1);
+
+	kfree(pmqos_handle_list);
+	ctx->thread[(u32)handle->thread].handle_count++;
+	mutex_unlock(&cmdq_thread_mutex);
+	CMDQ_SYSTRACE_END();
 
 	CMDQ_SYSTRACE_BEGIN("%s\n", __func__);
 	cmdq_core_replace_v3_instr(handle, handle->thread);
@@ -5006,7 +5022,8 @@ void cmdq_core_initialize(void)
 	cmdq_test_init_setting();
 #endif
 
-	cmdq_ctx.enableProfile = 1 << CMDQ_PROFILE_EXEC;
+	/* Initialize enableProfile disable */
+	cmdq_ctx.enableProfile = CMDQ_PROFILE_OFF;
 
 	mdp_rb_pool = dma_pool_create("mdp_rb", cmdq_dev_get(),
 		CMDQ_BUF_ALLOC_SIZE, 0, 0);

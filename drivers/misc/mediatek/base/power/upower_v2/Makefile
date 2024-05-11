@@ -30,7 +30,7 @@ ccflags-y += \
 
 ifeq ($(CONFIG_MTK_TINYSYS_SSPM_SUPPORT), y)
 #for mt6768
-ifeq ($(CONFIG_MACH_MT6768),y))
+ifeq ($(CONFIG_MACH_MT6768),y)
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/sspm/v1/
 else
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/sspm/
@@ -47,10 +47,15 @@ obj-$(CONFIG_MACH_MT6758) += mtk_unified_power_mt6758.o
 obj-$(CONFIG_MACH_MT6739) += mtk_unified_power_mt6739.o
 obj-$(CONFIG_MACH_MT6765) += mtk_unified_power_mt6765.o
 obj-$(CONFIG_MACH_MT6761) += mtk_unified_power_mt6761.o
+obj-$(CONFIG_MACH_MT6771) += mtk_unified_power_mt6771.o
 obj-$(CONFIG_MACH_MT3967) += mtk_unified_power_mt3967.o
 obj-$(CONFIG_MACH_MT6779) += mtk_unified_power_mt6779.o
 obj-$(CONFIG_MACH_MT6768) += mtk_unified_power_mt6768.o
 obj-$(CONFIG_MACH_MT6781) += mtk_unified_power_mt6781.o
 obj-$(CONFIG_MACH_MT6893) += mtk_unified_power_mt6893.o
+obj-$(CONFIG_MACH_MT6873) += mtk_unified_power_mt6873.o
+obj-$(CONFIG_MACH_MT6853) += mtk_unified_power_mt6853.o
 obj-$(CONFIG_MACH_MT6833) += mtk_unified_power_mt6833.o
 obj-$(CONFIG_MACH_MT6877) += mtk_unified_power_mt6877.o
+obj-$(CONFIG_MACH_MT6885) += mtk_unified_power_mt6885.o
+obj-$(CONFIG_MACH_MT6785) += mtk_unified_power_mt6785.o

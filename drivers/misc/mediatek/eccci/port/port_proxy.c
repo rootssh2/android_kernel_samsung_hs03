@@ -61,6 +61,27 @@ struct ccci_proc_user {
 
 static spinlock_t file_lock;
 
+static struct port_t *port_list[CCCI_MAX_CH_NUM];
+
+static struct port_t *ccci_port_get_port_by_user_id(unsigned int user_id)
+{
+	if (user_id < CCCI_MAX_CH_NUM)
+		return port_list[user_id];
+
+	return NULL;
+}
+
+char *ccci_port_get_dev_name(unsigned int rx_user_id)
+{
+	struct port_t *port = ccci_port_get_port_by_user_id(rx_user_id);
+
+	if (!port)
+		return NULL;
+
+	return port->name;
+}
+EXPORT_SYMBOL(ccci_port_get_dev_name);
+
 #if MD_GENERATION > (6295)
 int send_new_time_to_new_md(int md_id, int tz)
 {
@@ -437,6 +458,14 @@ READ_START:
 		ret = -EFAULT;
 	}
 	ts_1 = local_clock();
+	
+
+#ifdef CONFIG_MTK_SRIL_SUPPORT
+	if (port->rx_ch == CCCI_RIL_IPC0_RX || port->rx_ch == CCCI_RIL_IPC1_RX) {
+		print_hex_dump(KERN_INFO, "3. mif: RX: ",
+				DUMP_PREFIX_NONE, 32, 1, skb->data, 32, 0);
+	}
+#endif
 
 	skb_pull(skb, read_len);
 	/* 4. free request */
@@ -453,6 +482,10 @@ READ_START:
 
 
  exit:
+	if (ret < 0 && (port->rx_ch == CCCI_RIL_IPC0_RX || port->rx_ch == CCCI_RIL_IPC1_RX))
+		CCCI_ERROR_LOG(port->md_id, CHAR,
+				"RILD failed to read ipc packet, ret = %d, rx_ch = %d\n",
+				ret, port->rx_ch);
 	return ret ? ret : read_len;
 }
 
@@ -782,7 +815,7 @@ static void port_dump_string(struct port_t *port, int dir,
 #define DUMP_BUF_SIZE 32
 	unsigned char *char_ptr = (unsigned char *)msg_buf;
 	char buf[DUMP_BUF_SIZE];
-	int i, j, ret;
+	int i, j;
 	u64 ts_nsec;
 	unsigned long rem_nsec;
 	char *replace_str = NULL;
@@ -809,24 +842,12 @@ static void port_dump_string(struct port_t *port, int dir,
 				replace_str = "";
 				break;
 			}
-			ret = snprintf(buf+j, DUMP_BUF_SIZE - j,
+			scnprintf(buf+j, DUMP_BUF_SIZE - j,
 				"%s", replace_str);
-			if (ret <= 0 || ret >= DUMP_BUF_SIZE - j) {
-				CCCI_ERROR_LOG(port->md_id, TAG,
-					"%s snprintf replace_str fail\n",
-					__func__);
-				break;
-			}
 			j += 2;
 		} else {
-			ret = snprintf(buf+j, DUMP_BUF_SIZE - j,
+			scnprintf(buf+j, DUMP_BUF_SIZE - j,
 				"[%02X]", char_ptr[i]);
-			if (ret <= 0 || ret >= DUMP_BUF_SIZE - j) {
-				CCCI_ERROR_LOG(port->md_id, TAG,
-					"%s snprintf char_ptr0[%d] fail\n",
-					__func__, i);
-				break;
-			}
 			j += 4;
 		}
 	}
@@ -987,6 +1008,13 @@ int port_recv_skb(struct port_t *port, struct sk_buff *skb)
 			port->skb_handler(port, skb);
 		else {
 			__skb_queue_tail(&port->rx_skb_list, skb);
+#ifdef CONFIG_MTK_SRIL_SUPPORT
+		if (ccci_h->channel == CCCI_RIL_IPC0_RX
+			|| ccci_h->channel == CCCI_RIL_IPC1_RX) {
+			print_hex_dump(KERN_INFO, "2. mif: RX: ",
+				DUMP_PREFIX_NONE, 32, 1, skb->data, 32, 0);
+		}
+#endif
 			if (ccci_h->channel == CCCI_SYSTEM_RX) {
 				ts_nsec = sched_clock();
 				rem_nsec = do_div(ts_nsec, 1000000000);
@@ -997,6 +1025,13 @@ int port_recv_skb(struct port_t *port, struct sk_buff *skb)
 					ccci_h->seq_num);
 			}
 		}
+#ifdef CONFIG_MTK_SRIL_SUPPORT
+		if (ccci_h->channel == CCCI_RIL_IPC0_RX
+			|| ccci_h->channel == CCCI_RIL_IPC1_RX) {
+			print_hex_dump(KERN_INFO, "2. mif: RX: ",
+				DUMP_PREFIX_NONE, 32, 1, skb->data, 32, 0);
+		}
+#endif
 		/* set udc status */
 		if (ccci_h->channel == CCCI_UDC_RX)
 			set_udc_status(skb);
@@ -1016,8 +1051,13 @@ int port_recv_skb(struct port_t *port, struct sk_buff *skb)
 			"port %s Rx full, drop packet\n",
 			port->name);
 		goto drop;
-	} else
+	} else {
+		__pm_wakeup_event(port->rx_wakelock, jiffies_to_msecs(HZ/2));
+		spin_lock_irqsave(&port->rx_wq.lock, flags);
+		wake_up_all_locked(&port->rx_wq);
+		spin_unlock_irqrestore(&port->rx_wq.lock, flags);
 		return -CCCI_ERR_PORT_RX_FULL;
+	}
 
  drop:
 	/* only return drop and caller do drop */
@@ -1115,8 +1155,10 @@ int port_user_register(struct port_t *port)
 	proxy_p = GET_PORT_PROXY(md_id);
 	if (rx_ch == CCCI_FS_RX)
 		proxy_set_critical_user(proxy_p, CRIT_USR_FS, 1);
+#ifndef CONFIG_MTK_SRIL_SUPPORT
 	if (rx_ch == CCCI_UART2_RX)
 		proxy_set_critical_user(proxy_p, CRIT_USR_MUXD, 1);
+#endif
 	if (rx_ch == CCCI_MD_LOG_RX || (rx_ch == CCCI_SMEM_CH &&
 		strcmp(port->name, "ccci_ccb_dhl") == 0))
 		proxy_set_critical_user(proxy_p, CRIT_USR_MDLOG, 1);
@@ -1269,8 +1311,15 @@ static inline void proxy_setup_channel_mapping(struct port_proxy *proxy_p)
 	/*setup port mapping*/
 	for (i = 0; i < proxy_p->port_number; i++) {
 		port = proxy_p->ports + i;
+
+		if (port->rx_ch >= 0 && port->rx_ch < CCCI_MAX_CH_NUM)
+			port_list[port->rx_ch] = port;
+		if (port->tx_ch >= 0 && port->tx_ch < CCCI_MAX_CH_NUM)
+			port_list[port->tx_ch] = port;
+
 		/*setup RX_CH=>port list mapping*/
-		list_add_tail(&port->entry, &proxy_p->rx_ch_ports[port->rx_ch]);
+		if (port->rx_ch < CCCI_MAX_CH_NUM)
+			list_add_tail(&port->entry, &proxy_p->rx_ch_ports[port->rx_ch]);
 
 		/* skip no data transmission port,
 		 * such as CCCI_DUMMY_CH type port
@@ -2014,6 +2063,8 @@ void ccci_port_queue_status_notify(int md_id, int hif_id, int qno,
 	CHECK_HIF_ID(hif_id);
 	CHECK_QUEUE_ID(qno);
 	proxy_p = GET_PORT_PROXY(md_id);
+	if (proxy_p == NULL)
+		return;
 	proxy_dispatch_queue_status(proxy_p, hif_id, qno,
 		dir, (unsigned int)state);
 }

@@ -12,7 +12,7 @@
 #include <mach/mtk_pmic.h>
 
 #include <mtk_battery_internal.h>
-#if defined (CONFIG_MACH_MT6833) || defined(CONFIG_MACH_MT6893) || defined(CONFIG_MACH_MT6771)
+#if defined (CONFIG_MACH_MT6833) || defined(CONFIG_MACH_MT6885) || defined(CONFIG_MACH_MT6893) || defined(CONFIG_MACH_MT6771) || defined(CONFIG_MACH_MT6853) || defined(CONFIG_MACH_MT6873) || defined(CONFIG_MACH_MT6785)
 #include <mt-plat/v1/mtk_charger.h>
 #else
 #include <mtk_charger.h>
@@ -50,6 +50,12 @@ bool pmic_is_battery_exist(void)
 	is_bat_exist = 0;
 	return is_bat_exist;
 #endif
+
+#if defined(CONFIG_MTK_NO_USE_BATON)
+	bm_debug("[%s] MTK_NO_USE_BATON force return as true.\n", __func__);
+	is_bat_exist = true;
+	return is_bat_exist;
+#endif /* CONFIG_MTK_NO_USE_BATON */
 
 #if defined(CONFIG_MTK_PMIC_CHIP_MT6358) \
 || defined(CONFIG_MTK_PMIC_CHIP_MT6359) \

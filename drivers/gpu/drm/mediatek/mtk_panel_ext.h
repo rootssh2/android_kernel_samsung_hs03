@@ -20,7 +20,7 @@ struct mtk_dsi;
 struct cmdq_pkt;
 struct mtk_panel_para_table {
 	u8 count;
-	u8 para_list[64];
+	u8 para_list[510];
 };
 
 /*
@@ -120,6 +120,22 @@ enum FPS_CHANGE_INDEX {
 	DYNFPS_DSI_MIPI_CLK = 4,
 };
 
+struct dsc_rc_range_parameters {
+	/**
+	 * @range_min_qp: Min Quantization Parameters allowed for this range
+	 */
+	u8 range_min_qp;
+	/**
+	 * @range_max_qp: Max Quantization Parameters allowed for this range
+	 */
+	u8 range_max_qp;
+	/**
+	 * @range_bpg_offset:
+	 * Bits/group offset to apply to target for this group
+	 */
+	u8 range_bpg_offset;
+};
+
 struct mtk_panel_dsc_params {
 	unsigned int enable;
 	unsigned int bdg_dsc_enable;
@@ -155,6 +171,8 @@ struct mtk_panel_dsc_params {
 	unsigned int rc_quant_incr_limit1;
 	unsigned int rc_tgt_offset_hi;
 	unsigned int rc_tgt_offset_lo;
+	unsigned int rc_buf_thresh[14];
+	struct dsc_rc_range_parameters rc_range_parameters[15];
 };
 struct mtk_dsi_phy_timcon {
 	unsigned int hs_trail;
@@ -263,6 +281,7 @@ struct mtk_panel_ctx {
 struct mtk_panel_funcs {
 	int (*set_backlight_cmdq)(void *dsi_drv, dcs_write_gce cb,
 		void *handle, unsigned int level);
+	int (*set_dispon_cmdq)(struct drm_panel *panel);
 	int (*set_aod_light_mode)(void *dsi_drv, dcs_write_gce cb,
 		void *handle, unsigned int mode);
 	int (*set_backlight_grp_cmdq)(void *dsi_drv, dcs_grp_write_gce cb,
@@ -331,6 +350,7 @@ struct mtk_panel_funcs {
 
 	int (*hbm_set_cmdq)(struct drm_panel *panel, void *dsi_drv,
 			    dcs_write_gce cb, void *handle, bool en);
+	int (*hbm_set_lcm_cmdq)(struct drm_panel *panel, bool en);
 	void (*hbm_get_state)(struct drm_panel *panel, bool *state);
 	void (*hbm_get_wait_state)(struct drm_panel *panel, bool *wait);
 	bool (*hbm_set_wait_state)(struct drm_panel *panel, bool wait);

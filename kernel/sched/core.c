@@ -28,6 +28,12 @@
 #ifdef CONFIG_MTK_TASK_TURBO
 #include <mt-plat/turbo_common.h>
 #endif
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+#include <linux/sec_debug.h>
+#endif
+#ifdef CONFIG_MTK_QOS_FRAMEWORK
+#include <mt-plat/mtk_qos_prefetch_common.h>
+#endif /* CONFIG_MTK_QOS_FRAMEWORK */
 
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
@@ -1205,8 +1211,9 @@ int set_task_util_min(pid_t pid, unsigned int util_min)
 	int ret = -EINVAL;
 
 	struct sched_attr attr = {
-		.sched_flags =
-			SCHED_FLAG_KEEP_PARAMS | SCHED_FLAG_UTIL_CLAMP_MIN,
+		.sched_flags =  SCHED_FLAG_KEEP_PARAMS |
+				SCHED_FLAG_UTIL_CLAMP_MIN |
+				SCHED_FLAG_RESET_ON_FORK,
 		.sched_util_min = util_min,
 	};
 
@@ -1369,6 +1376,9 @@ static inline void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
 
 	uclamp_rq_inc(rq, p);
 	p->sched_class->enqueue_task(rq, p, flags);
+
+	/* update last_enqueued_ts for big task rotation */
+	p->last_enqueued_ts = ktime_get_ns();
 }
 
 static inline void dequeue_task(struct rq *rq, struct task_struct *p, int flags)
@@ -3188,6 +3198,7 @@ void wake_up_new_task(struct task_struct *p)
 	update_rq_clock(rq);
 	post_init_entity_util_avg(&p->se);
 
+	p->last_enqueued_ts = ktime_get_ns();
 	activate_task(rq, p, ENQUEUE_NOCLOCK);
 	p->on_rq = TASK_ON_RQ_QUEUED;
 	trace_sched_wakeup_new(p);
@@ -3833,6 +3844,9 @@ void scheduler_tick(void)
 	rq_unlock(rq, &rf);
 
 	perf_event_task_tick();
+#ifdef CONFIG_MTK_CORE_CTL
+	sched_max_util_task_tracking();
+#endif
 #ifdef CONFIG_MTK_PERF_COMMON
 	perf_common(ktime_get_ns());
 #endif
@@ -3845,6 +3859,9 @@ void scheduler_tick(void)
 	if (curr->sched_class == &fair_sched_class)
 		check_for_migration(curr);
 #endif
+#ifdef CONFIG_MTK_QOS_FRAMEWORK
+	qos_prefetch_tick(cpu);
+#endif /* CONFIG_MTK_QOS_FRAMEWORK */
 }
 
 #ifdef CONFIG_NO_HZ_FULL
@@ -4083,8 +4100,13 @@ static noinline void __schedule_bug(struct task_struct *prev)
 	if (oops_in_progress)
 		return;
 
+#ifdef CONFIG_SEC_DEBUG_AUTO_COMMENT
+	pr_auto(ASL6, "BUG: scheduling while atomic: %s/%d/0x%08x\n",
+		prev->comm, prev->pid, preempt_count());
+#else
 	printk(KERN_ERR "BUG: scheduling while atomic: %s/%d/0x%08x\n",
 		prev->comm, prev->pid, preempt_count());
+#endif
 
 	debug_show_held_locks(prev);
 	print_modules();
@@ -7122,9 +7144,15 @@ void ___might_sleep(const char *file, int line, int preempt_offset)
 	/* Save this before calling printk(), since that will clobber it: */
 	preempt_disable_ip = get_preempt_disable_ip(current);
 
+#ifdef CONFIG_SEC_DEBUG_AUTO_COMMENT
+	pr_auto(ASL6,
+		"BUG: sleeping function called from invalid context at %s:%d\n",
+			file, line);
+#else
 	printk(KERN_ERR
 		"BUG: sleeping function called from invalid context at %s:%d\n",
 			file, line);
+#endif
 	printk(KERN_ERR
 		"in_atomic(): %d, irqs_disabled(): %d, pid: %d, name: %s\n",
 			in_atomic(), irqs_disabled(),

@@ -48,6 +48,9 @@
 #include <linux/math64.h>
 #include <linux/alarmtimer.h>
 
+#include <linux/of_gpio.h>
+#include <linux/gpio.h>
+
 #include <mt-plat/aee.h>
 #include <mt-plat/v1/charger_type.h>
 #include <mt-plat/v1/mtk_charger.h>
@@ -72,6 +75,9 @@
 #include <mtk_battery_table.h>
 #include "simulator_kernel.h"
 #endif
+/* hs14 code for  SR-AL6528A-01-313 by zhouyuhang at 20220907 start*/
+#include "battery_id_adc.h"
+/* hs14 code for  SR-AL6528A-01-313 by zhouyuhang at 20220907 end*/
 
 
 
@@ -95,10 +101,16 @@ bool gauge_get_current(int *bat_current)
 {
 	bool is_charging = false;
 
+/* hs14 code for SR-AL6528A-01-336 by wenyaqi at 2022/10/18 start */
+#ifdef HQ_D85_BUILD
+	// no add
+#else
 	if (is_fg_disabled()) {
 		*bat_current = 0;
 		return is_charging;
 	}
+#endif
+/* hs14 code for SR-AL6528A-01-336 by wenyaqi at 2022/10/18 end */
 
 	if (get_ec()->debug_fg_curr_en == 1) {
 		*bat_current = get_ec()->debug_fg_curr_value;
@@ -662,9 +674,42 @@ void fgauge_get_profile_id(void)
 #elif defined(MTK_GET_BATTERY_ID_BY_GPIO)
 void fgauge_get_profile_id(void)
 {
-	gm.battery_id = 0;
+	struct device_node *batterty_node;
+	int _battery_id_gpio_0, _battery_id_gpio_1;
+	int _battery_id_0, _battery_id_1;
+
+	batterty_node = of_find_node_by_name(NULL, "battery");
+	if (!batterty_node) {
+		bm_err("[%s] of_find_node_by_name fail\n", __func__);
+		return;
+	}
+
+	_battery_id_gpio_1 = of_get_named_gpio(batterty_node, "BatteryID_GPIO_1", 0);
+	_battery_id_gpio_0 = of_get_named_gpio(batterty_node, "BatteryID_GPIO", 0);
+
+	/* check batteryid gpio */
+	if (_battery_id_gpio_0 < 0) {
+		gm.battery_id = 0;
+		bm_err("[%s] cannot find BatteryID-GPIO. Default battery ID = %d\n",
+			__func__, gm.battery_id);
+		return;
+	}
+
+	_battery_id_0 = gpio_get_value(_battery_id_gpio_0);
+
+	if (_battery_id_gpio_1 < 0) {
+		gm.battery_id = _battery_id_0;
+		bm_err("[%s]GPIO Battery id (%d) (battery_id_gpio= %d)\n",
+			__func__, gm.battery_id, _battery_id_gpio_0);
+	} else {
+		_battery_id_1 = gpio_get_value(_battery_id_gpio_1);
+		gm.battery_id = (_battery_id_1 << 1) + (_battery_id_0);
+		bm_err("[%s]GPIO Battery id (%d) (battery_id_gpio= %d %d)\n",
+			__func__, gm.battery_id, _battery_id_gpio_1, _battery_id_gpio_0);
+	}
 }
 #else
+#if 0
 void fgauge_get_profile_id(void)
 {
 	if (get_ec()->debug_bat_id_en == 1)
@@ -677,6 +722,41 @@ void fgauge_get_profile_id(void)
 		gm.battery_id, get_ec()->debug_bat_id_en,
 		get_ec()->debug_bat_id_value);
 }
+#endif
+/* hs14 code for  SR-AL6528A-01-313 by zhouyuhang at 20220907 start*/
+enum
+{
+	SS_BATTERY_BYD = 0,
+	SS_BATTERY_SDI,
+	/* hs14 code for AL6528A-1011 by zhangzhihao at 2022/11/29 start */
+	SS_BATTERY_ATL,
+	/* hs14 code for AL6528A-1011 by zhangzhihao at 2022/11/29 end */
+	SS_BATTERY_UNKNOWN,
+};
+
+void fgauge_get_profile_id(void)
+{
+	int id_volt = 0;
+
+	id_volt = battery_get_bat_id_voltage();
+
+	if (id_volt >= 1080 && id_volt <= 1320) {
+		gm.battery_id = SS_BATTERY_BYD;
+	} else if (id_volt >= 810 && id_volt <= 990) {
+		gm.battery_id = SS_BATTERY_SDI;
+	/* hs14 code for AL6528A-1011 by zhangzhihao at 2022/11/29 start */
+	} else if (id_volt >= 513 && id_volt <= 627) {
+		gm.battery_id = SS_BATTERY_ATL;
+	/* hs14 code for AL6528A-1011 by zhangzhihao at 2022/11/29 end */
+	} else {
+		bm_err("bat_id get fail, load default id");
+		gm.battery_id = SS_BATTERY_BYD;
+	}
+	bm_err("[%s] bat_id_get_num:%d, id_volt:%d, bat_id:%d\n",
+		__func__, bat_id_get_adc_num(), id_volt,  gm.battery_id);
+	return;
+}
+/* hs14 code for  SR-AL6528A-01-313 by zhouyuhang at 20220907 end*/
 #endif
 
 void fg_custom_init_from_header(void)
@@ -1075,7 +1155,7 @@ static int fg_read_dts_val(const struct device_node *np,
 		bm_debug("Get %s: %d\n",
 			 node_srting, *param);
 	} else {
-		bm_err("Get %s failed\n", node_srting);
+		bm_debug("Get %s failed\n", node_srting);
 		return -1;
 	}
 	return 0;
@@ -1092,7 +1172,7 @@ static int fg_read_dts_val_by_idx(const struct device_node *np,
 		bm_debug("Get %s %d: %d\n",
 			 node_srting, idx, *param);
 	} else {
-		bm_err("Get %s failed, idx %d\n", node_srting, idx);
+		bm_debug("Get %s failed, idx %d\n", node_srting, idx);
 		return -1;
 	}
 	return 0;
@@ -1647,6 +1727,10 @@ void fg_custom_init_from_dts(struct platform_device *dev)
 
 	fg_read_dts_val(np, "ACTIVE_TABLE",
 		&(fg_table_cust_data.active_table_number), 1);
+
+	/* dynamic CV */
+	fg_read_dts_val(np, "DYNAMIC_CV_FACTOR", &(fg_cust_data.dynamic_cv_factor), 1);
+	fg_read_dts_val(np, "CHARGER_IEOC", &(fg_cust_data.charger_ieoc), 1);
 
 #if defined(CONFIG_MTK_ADDITIONAL_BATTERY_TABLE)
 	if (fg_table_cust_data.active_table_number == 0)
@@ -2791,6 +2875,11 @@ void fg_drv_update_hw_status(void)
 	chr_vol = battery_get_vbus();
 	tmp = force_get_tbat(true);
 
+	bm_err("precise_soc: %d.%d\n",
+		(battery_get_precise_soc()/10), (battery_get_precise_soc()%10));
+	bm_err("precise_uisoc: %d.%d\n",
+		(battery_get_precise_uisoc()/10), (battery_get_precise_uisoc()%10));
+
 	bm_err("lbat %d %d %d %d\n",
 		gm.sw_low_battery_ht_en,
 		gm.sw_low_battery_ht_threshold,
@@ -3171,6 +3260,7 @@ void fg_daemon_comm_INT_data(char *rcv, char *ret)
 	case FG_SET_SOC:
 		{
 			gm.soc = (prcv->input + 50) / 100;
+			gm.precise_soc = (prcv->input + 5) / 10;
 		}
 		break;
 	case FG_SET_C_D0_SOC:
@@ -3259,6 +3349,14 @@ void fg_daemon_comm_INT_data(char *rcv, char *ret)
 			bm_err("set zcv_interrupt_en %d\n", zcv_intr_en);
 		}
 		break;
+	case FG_SET_DYNAMIC_CV:
+		{
+			int cv = prcv->input;
+
+			cv = cv * 100;
+			battery_set_charger_constant_voltage(cv);
+			bm_err("comm_INT:FG_SET_DYNAMIC_CV set charger cv:%d\n", cv);
+		}
 	default:
 		pret->status = -1;
 		bm_err("%s type:%d in:%d out:%d,Retun t:%d,in:%d,o:%d,s:%d\n",
@@ -3378,12 +3476,20 @@ void bmd_ctrl_cmd_from_user(void *nl_data, struct fgd_nl_msg_t *ret_msg)
 		{
 			int is_charger_exist = 0;
 
+#if defined(CONFIG_MACH_MT6877) || defined(CONFIG_MACH_MT6885) || defined(CONFIG_MACH_MT6853) \
+	|| defined(CONFIG_MACH_MT6893) || defined(CONFIG_MACH_MT6873)                         \
+	|| defined(CONFIG_MACH_MT6771) || defined(CONFIG_MACH_MT6785)
+			if (battery_main.BAT_STATUS == POWER_SUPPLY_STATUS_CHARGING)
+				is_charger_exist = true;
+			else
+				is_charger_exist = false;
+#else
 			if (upmu_get_rgs_chrdet() == 0 ||
 				mt_usb_is_device() == 0)
 				is_charger_exist = false;
 			else
 				is_charger_exist = true;
-
+#endif
 			ret_msg->fgd_data_len += sizeof(is_charger_exist);
 			memcpy(ret_msg->fgd_data,
 				&is_charger_exist, sizeof(is_charger_exist));
@@ -4318,12 +4424,19 @@ void bmd_ctrl_cmd_from_user(void *nl_data, struct fgd_nl_msg_t *ret_msg)
 		soc_type = msg->fgd_subcmd_para1;
 
 		memcpy(&daemon_soc, &msg->fgd_data[0], sizeof(daemon_soc));
-		if (soc_type == 0)
+		if (soc_type == 0) {
 			gm.soc = (daemon_soc + 50) / 100;
+			gm.precise_soc = (daemon_soc + 5) / 10;
+		}
+		/* hs14 code for SR-AL6528A-01-336 by shanxinkai at 2022/09/15 start */
+		#ifdef HQ_D85_BUILD
+		gm.soc = 50;
+		#endif
+		/* hs14 code for SR-AL6528A-01-336 by shanxinkai at 2022/09/15 end */
 
 		bm_err(
-		"[fg_res]FG_DAEMON_CMD_SET_KERNEL_SOC = %d %d, type:%d\n",
-		daemon_soc, gm.soc, soc_type);
+		"[fg_res]FG_DAEMON_CMD_SET_KERNEL_SOC = %d %d %d, type:%d\n",
+		daemon_soc, gm.soc, gm.precise_soc, soc_type);
 
 	}
 	break;
@@ -4346,26 +4459,29 @@ void bmd_ctrl_cmd_from_user(void *nl_data, struct fgd_nl_msg_t *ret_msg)
 		fg_cust_data.ui_old_soc = daemon_ui_soc;
 		old_uisoc = gm.ui_soc;
 
-		if (gm.disableGM30 == true)
+		if (gm.disableGM30 == true) {
 			gm.ui_soc = 50;
-		else
+			gm.precise_ui_soc = 50 * 10;
+		} else {
 			gm.ui_soc = (daemon_ui_soc + 50) / 100;
+			gm.precise_ui_soc = (daemon_ui_soc + 5) / 10;
+		}
 
 		/* when UISOC changes, check the diff time for smooth */
 		if (old_uisoc != gm.ui_soc) {
 			get_monotonic_boottime(&now_time);
 			diff = timespec_sub(now_time, gm.uisoc_oldtime);
 
-			bm_debug("[fg_res] FG_DAEMON_CMD_SET_KERNEL_UISOC = %d %d GM3:%d old:%d diff=%ld\n",
-				daemon_ui_soc, gm.ui_soc,
+			bm_debug("[fg_res] FG_DAEMON_CMD_SET_KERNEL_UISOC = %d %d %d GM3:%d old:%d diff=%ld\n",
+				daemon_ui_soc, gm.ui_soc, gm.precise_ui_soc,
 				gm.disableGM30, old_uisoc, diff.tv_sec);
 			gm.uisoc_oldtime = now_time;
 
 			battery_main.BAT_CAPACITY = gm.ui_soc;
 			battery_update(&battery_main);
 		} else {
-			bm_debug("[fg_res] FG_DAEMON_CMD_SET_KERNEL_UISOC = %d %d GM3:%d\n",
-				daemon_ui_soc, gm.ui_soc, gm.disableGM30);
+			bm_debug("[fg_res] FG_DAEMON_CMD_SET_KERNEL_UISOC = %d %d %d GM3:%d\n",
+				daemon_ui_soc, gm.ui_soc, gm.precise_ui_soc, gm.disableGM30);
 			/* ac_update(&ac_main); */
 			battery_main.BAT_CAPACITY = gm.ui_soc;
 			battery_update(&battery_main);

@@ -180,7 +180,7 @@ int update_eas_uclamp_min(int kicker, int cgroup_idx, int value)
 #endif
 EXPORT_SYMBOL(update_eas_uclamp_min);
 
-#if defined(CONFIG_SCHED_TUNE) && defined(CONFIG_MTK_FPSGO_V3)
+#ifdef CONFIG_SCHED_TUNE
 int update_prefer_idle_value(int kicker, int cgroup_idx, int value)
 {
 	if (cgroup_idx < 0 || cgroup_idx >= NR_CGROUP) {
@@ -577,7 +577,7 @@ static ssize_t perfmgr_debug_prefer_idle_proc_write(
 
 	if (cgroup >= 0 && cgroup < NR_CGROUP) {
 		debug_prefer_idle[cgroup] = data;
-#if defined(CONFIG_SCHED_TUNE) && defined(CONFIG_MTK_FPSGO_V3)
+#ifdef CONFIG_SCHED_TUNE
 		if (data == 1)
 			prefer_idle_for_perf_idx(cgroup, 1);
 		else if (data == 0)
@@ -1215,6 +1215,7 @@ PROC_FOPS_RW(perfmgr_log);
 /*******************************************/
 int uclamp_ctrl_init(struct proc_dir_entry *parent)
 {
+#ifdef CONFIG_MTK_SCHED_EXTENSION
 	int i, ret = 0;
 	size_t idx;
 #if defined(CONFIG_UCLAMP_TASK_GROUP) && defined(CONFIG_SCHED_TUNE)
@@ -1265,7 +1266,6 @@ int uclamp_ctrl_init(struct proc_dir_entry *parent)
 		/* log */
 		PROC_ENTRY(perfmgr_log),
 	};
-	mutex_init(&boost_eas);
 
 	/* create procfs */
 	for (idx = 0; idx < ARRAY_SIZE(entries); idx++) {
@@ -1278,7 +1278,7 @@ int uclamp_ctrl_init(struct proc_dir_entry *parent)
 		}
 	}
 
-#if defined(CONFIG_SCHED_TUNE) && defined(CONFIG_MTK_FPSGO_V3)
+#ifdef CONFIG_SCHED_TUNE
 	/* boost value */
 	for (i = 0; i < NR_CGROUP; i++) {
 		prefer_idle[i] = 0;
@@ -1327,6 +1327,8 @@ int uclamp_ctrl_init(struct proc_dir_entry *parent)
 #endif
 
 out:
-	return ret;
+#endif
+	mutex_init(&boost_eas);
+	return 0;
 }
 

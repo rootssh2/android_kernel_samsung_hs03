@@ -764,6 +764,12 @@ int mdw_usr_ucmd(struct apusys_ioctl_ucmd *uc)
 	struct mdw_dev_info *d = NULL;
 	int ret = 0;
 
+	/* check offset to avoid oob */
+	if (uc->offset) {
+		mdw_drv_err("don't support offset(%u)\n", uc->offset);
+		return -EINVAL;
+	}
+
 	memset(&km, 0, sizeof(km));
 
 	km.fd = uc->mem_fd;
@@ -936,9 +942,16 @@ rewait:
 			mdw_dbg_aee("apusys midware wait timeout");
 		cmd_parser->abort_cmd(c);
 	} else { /* Wait done, delete cmd */
+		if (c->sc_rets) {
+			mdw_drv_err("cmd(0x%llx) sc(0x%llx) fail\n",
+				c->kid, c->sc_rets);
+			ret = -EIO;
+		} else {
+			ret = 0;
+		}
+
 		if (cmd_parser->delete_cmd(c))
 			mdw_drv_err("delete cmd fail\n");
-		ret = 0;
 	}
 
 	mdw_usr_ws_unlock();

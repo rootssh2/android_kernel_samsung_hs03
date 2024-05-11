@@ -17,6 +17,7 @@ else
 MTK_PLATFORM := $(subst ",,$(CONFIG_MTK_PLATFORM))
 endif
 
+# mt6761 mt6762 mt6768 without RSC
 $(info $(srctree))
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/m4u/$(MTK_PLATFORM)/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/mmp/
@@ -34,16 +35,8 @@ ifeq ($(CONFIG_MACH_MT6758),y)
   obj-$(CONFIG_MTK_CAMERA_ISP_RSC_SUPPORT) += $(MTK_PLATFORM)/camera_rsc.o
 endif
 
-ifeq ($(CONFIG_MACH_MT6761),y)
-  obj-$(CONFIG_MTK_CAMERA_ISP_RSC_SUPPORT) += isp50/camera_rsc.o
-endif
-
-ifeq ($(CONFIG_MACH_MT6762),y)
-  obj-$(CONFIG_MTK_CAMERA_ISP_RSC_SUPPORT) += isp50/camera_rsc.o
-endif
-
-ifeq ($(CONFIG_MACH_MT6768),y)
-  obj-$(CONFIG_MTK_CAMERA_ISP_RSC_SUPPORT) += isp50/camera_rsc.o
+ifeq ($(CONFIG_MACH_MT6771),y)
+  obj-$(CONFIG_MTK_CAMERA_ISP_RSC_SUPPORT) += isp_50/camera_rsc.o
 endif
 
 ifeq ($(CONFIG_MACH_MT6779),y)

@@ -106,6 +106,8 @@ static unsigned int xo_mode_init[XO_NUMBER];
 /* #define CLK_BUF_HW_BBLPM_EN */
 static unsigned int bblpm_switch = 2;
 
+static unsigned int bblpm_cnt;
+
 static unsigned int pwrap_dcxo_en_init;
 
 static unsigned int clk_buf7_ctrl = true;
@@ -310,15 +312,12 @@ u32 clk_buf_bblpm_enter_cond(void)
 			bblpm_cond |= BBLPM_COND_EXT;
 #endif
 	}
+
 	if (!bblpm_cond)
 		bblpm_cnt++;
-
 #else /* !CLKBUF_USE_BBLPM */
 	bblpm_cond |= BBLPM_COND_SKIP;
 #endif
-
-	if (!bblpm_cond)
-		bblpm_cnt++;
 
 	return bblpm_cond;
 }
@@ -772,10 +771,12 @@ EXPORT_SYMBOL(clk_buf_ctrl);
 
 void clk_buf_disp_ctrl(bool onoff)
 {
-	int pwrap_dcxo_en;
+/*A14 code for SR-AL6528A-01-7 by lijun at 2022-09-21 start*/	
+	//int pwrap_dcxo_en;
 
-	pwrap_dcxo_en = clkbuf_readl(DCXO_ENABLE) & ~DCXO_NFC_ENABLE;
-	clkbuf_writel(DCXO_ENABLE, pwrap_dcxo_en);
+	//pwrap_dcxo_en = clkbuf_readl(DCXO_ENABLE) & ~DCXO_NFC_ENABLE;
+	//clkbuf_writel(DCXO_ENABLE, pwrap_dcxo_en);
+/*A14 code for SR-AL6528A-01-7 by lijun at 2022-09-21 end*/
 	if (onoff) {
 		pmic_config_interface(PMIC_DCXO_CW00_CLR_ADDR,
 			PMIC_XO_EXTBUF3_MODE_MASK,
@@ -1616,11 +1617,14 @@ void clk_buf_post_init(void)
 	CLK_BUF7_STATUS = CLOCK_BUFFER_DISABLE;
 #endif
 #endif
-#ifndef CONFIG_NFC_CHIP_SUPPORT
+
+/*A14 code for SR-AL6528A-01-7 by lijun at 2022-09-21 start*/
+//#ifndef CONFIG_NFC_CHIP_SUPPORT
 	/* no need to use XO_NFC if no NFC */
-	clk_buf_ctrl_internal(CLK_BUF_NFC, CLK_BUF_FORCE_OFF);
-	CLK_BUF3_STATUS = CLOCK_BUFFER_DISABLE;
-#endif
+	//clk_buf_ctrl_internal(CLK_BUF_NFC, CLK_BUF_FORCE_OFF);
+	//CLK_BUF3_STATUS = CLOCK_BUFFER_DISABLE;
+//#endif
+/*A14 code for SR-AL6528A-01-7 by lijun at 2022-09-21 start*/
 #ifdef CLKBUF_USE_BBLPM
 	if (bblpm_switch == 2) {
 		clk_buf_ctrl_bblpm_mask(CLK_BUF_BB_MD, true);

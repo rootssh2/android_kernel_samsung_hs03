@@ -62,7 +62,7 @@ ccflags-y += -DTEE_DEVICES_SUPPORT
 trusted_mem-y += tee_impl/tee_invoke.o
 
 ifneq ($(filter y m,$(CONFIG_MICROTRUST_TEE_SUPPORT) \
-		  $(CONFIG_TRUSTONIC_TEE_SUPPORT)),)
+		  $(CONFIG_TRUSTONIC_TEE_SUPPORT) $(CONFIG_TEEGRIS_TEE_SUPPORT)),)
 trusted_mem-y += tee_impl/tee_ops.o
 endif
 endif
@@ -71,10 +71,12 @@ endif
 # MTEE Multiple Chunk Devices & Geniezone Peer Driver
 #==========================================================================
 ifneq ($(filter y m,$(CONFIG_MTK_PROT_MEM_SUPPORT) \
-		  $(CONFIG_MTK_MTEE_MULTI_CHUNK_SUPPORT)),)
+		$(CONFIG_MTK_MTEE_MULTI_CHUNK_SUPPORT) \
+		$(CONFIG_MTK_SVP_ON_MTEE_SUPPORT)),)
 trusted_mem-y += mtee_devices.o
 ccflags-y += -DMTEE_DEVICES_SUPPORT
 endif
+
 ifneq ($(filter y m,$(CONFIG_MTK_GZ_KREE)),)
 trusted_mem-y += mtee_impl/mtee_ops.o
 trusted_mem-y += mtee_impl/mtee_invoke.o
@@ -112,3 +114,7 @@ endif # !CONFIG_MICROTRUST_TEE_SUPPORT
 ifneq ($(filter y m,$(CONFIG_BLOWFISH_TEE_SUPPORT)),)
 ccflags-y += -I$(srctree)/drivers/misc/tzdev
 endif # !CONFIG_BLOWFISH_TEE_SUPPORT
+
+ifeq ($(CONFIG_TEEGRIS_TEE_SUPPORT),y)
+include $(srctree)/drivers/tee/tzdev/Makefile.include
+endif # CONFIG_TEEGRIS_TEE_SUPPORT

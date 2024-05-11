@@ -22,6 +22,10 @@
 #include <usb20_phy.h>
 #endif
 
+#if IS_ENABLED(CONFIG_USB_NOTIFY_LAYER)
+#include <linux/usb_notify.h>
+#endif
+
 #include <mt-plat/mtk_boot_common.h>
 MODULE_LICENSE("GPL v2");
 
@@ -172,22 +176,6 @@ static void usb_dpidle_request(int mode)
 	spin_unlock_irqrestore(&usb_hal_dpidle_lock, flags);
 }
 #endif
-
-/* default value 0 */
-static int usb_rdy;
-bool is_usb_rdy(void)
-{
-	if (mtk_musb->is_ready) {
-		usb_rdy = 1;
-		DBG(0, "set usb_rdy, wake up bat\n");
-	}
-
-	if (usb_rdy)
-		return true;
-	else
-		return false;
-}
-EXPORT_SYMBOL(is_usb_rdy);
 
 /* BC1.2 */
 /* Duplicate define in phy-mtk-tphy */
@@ -822,6 +810,22 @@ static bool musb_hal_is_vbus_exist(void)
 }
 
 /* be aware this could not be used in non-sleep context */
+#if IS_ENABLED(CONFIG_USB_NOTIFY_LAYER)
+bool usb_cable_connected(void)
+{
+	struct otg_notify *usb_notify;
+	int usb_mode = 0;
+
+	usb_notify = get_otg_notify();
+	usb_mode = get_usb_mode(usb_notify);
+	pr_info("usb: %s: %d\n", __func__, usb_mode);
+	if (usb_mode == NOTIFY_PERIPHERAL_MODE)
+		return true;
+	else
+		return false;
+
+}
+#else
 bool usb_cable_connected(struct musb *musb)
 {
 	if (musb->usb_connected)
@@ -829,6 +833,7 @@ bool usb_cable_connected(struct musb *musb)
 	else
 		return false;
 }
+#endif
 
 static bool cmode_effect_on(void)
 {
@@ -859,8 +864,12 @@ void do_connection_work(struct work_struct *data)
 	/* clk_prepare_cnt +1 here*/
 	usb_prepare_clock(true);
 
+#if IS_ENABLED(CONFIG_USB_NOTIFY_LAYER)
+	usb_connected = usb_cable_connected();
+#else
 	/* be aware this could not be used in non-sleep context */
 	usb_connected = mtk_musb->usb_connected;
+#endif
 
 	/* additional check operation here */
 	if (musb_force_on)
@@ -1830,7 +1839,9 @@ static int __init mt_usb_init(struct musb *musb)
 	mt_usb_otg_init(musb);
 	/* enable host suspend mode */
 	mt_usb_wakeup_init(musb);
-	musb->host_suspend = true;
+	/* hs14 code for SR-AL6528A-01-306 by gaozhengwei at 2022/09/06 start */
+	musb->host_suspend = false;
+	/* hs14 code for SR-AL6528A-01-306 by gaozhengwei at 2022/09/06 end */
 #endif
 	return 0;
 err_phy_power_on:
